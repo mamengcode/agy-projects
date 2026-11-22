@@ -1333,6 +1333,20 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === "GET" && pathname === "/api/swarm/board") {
+      const ws = db.resolveActiveWorkspace(
+        parsedUrl.searchParams.get("workspacePath") || undefined,
+        parsedUrl.searchParams.get("projectId") || undefined
+      );
+      if (!ws || !db.hasProjectInitialized(ws)) {
+        return sendJson(res, 404, { error: "No initialized AGY Project found." });
+      }
+      const rawLimit = Number(parsedUrl.searchParams.get("limit") || 150);
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(500, Math.floor(rawLimit)) : 150;
+      const member = (parsedUrl.searchParams.get("member") || "").trim() || undefined;
+      return sendJson(res, 200, db.getProjectSwarmBoard(ws, { limit, member }));
+    }
+
     if (req.method === "GET" && pathname === "/api/snapshots/preview") {
       const ws = db.resolveActiveWorkspace(parsedUrl.searchParams.get("workspacePath") || undefined);
       if (!ws) return sendJson(res, 404, { error: "No active workspace" });

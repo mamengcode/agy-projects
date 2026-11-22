@@ -991,6 +991,51 @@ function getThreadBoardMessages(workspacePath, threadId, opts = {}) {
   };
 }
 
+/**
+ * Read project-wide Swarm Board state, roster metadata, and filtered visible messages.
+ */
+function getProjectSwarmBoard(workspacePath, opts = {}) {
+  const absWs = path.resolve(workspacePath);
+  const snap = readActiveSwarmState(absWs, opts);
+  const member = typeof opts.member === "string" ? opts.member.trim() : "";
+  const rawMsgs = Array.isArray(snap.messages) ? snap.messages : [];
+  const nonControlMsgs = rawMsgs.filter((m) => !controlOf(m));
+  const visibleMsgs = member
+    ? nonControlMsgs.filter(
+        (m) =>
+          String(m.agent || "") === member ||
+          matchesMemberMention(String(m.text || ""), member, { includeAll: true })
+      )
+    : nonControlMsgs;
+  const rawLimit = opts.limit === undefined ? 150 : Number(opts.limit);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(500, Math.floor(rawLimit)) : 150;
+  const limitedMsgs = visibleMsgs.slice(-limit);
+  return {
+    active: Boolean(snap.active),
+    backend: snap.backend || null,
+    unsupportedReason: snap.unsupportedReason || null,
+    coordinatorConversationId: snap.coordinatorConversationId || null,
+    title: snap.title || "",
+    head: snap.head || 0,
+    counts: snap.counts || { total: 0, working: 0, waiting: 0, killed: 0 },
+    members: (snap.memberList || []).map((m) => ({
+      name: m.name,
+      role: m.role,
+      isSystem: Boolean(m.isSystem),
+      conversation_id: m.conversation_id || "",
+      model: m.model || "",
+      workspace_mode: m.workspace_mode || "",
+      status: m.status || "waiting",
+      steps: Number(m.steps || 0),
+      lastPostSeq: Number(m.lastPostSeq || 0),
+      lastPostTime: m.lastPostTime || ""
+    })),
+    memberFilter: member || null,
+    totalMessages: visibleMsgs.length,
+    messages: limitedMsgs
+  };
+}
+
 function formatSwarmLastMessage(msg) {
   if (!msg) return null;
   const seq = Number(msg.seq) || 0;
@@ -1734,6 +1779,7 @@ module.exports = {
   deriveSingleMemberState,
   readActiveSwarmState,
   getThreadBoardMessages,
+  getProjectSwarmBoard,
   syncSwarmIntoProjectDb,
   runImmediateTx,
   formatSwarmLastMessage,

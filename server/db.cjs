@@ -6031,5 +6031,6 @@ module.exports = {
   computeSwarmCapability,
   buildFullWorkspaceSnapshot,
   uiBucketToServerStatus,
+  getProjectSwarmBoard: swarmSync.getProjectSwarmBoard,
   ...swarmSync
 };

@@ -656,8 +656,8 @@
       <span id="status-badge" class="badge">No Project</span>
     </div>
     <div class="topbar-right">
-      <span id="swarm-status-pill" class="badge" hidden>Swarm: 0 working</span>
-      <button type="button" id="btn-open-swarm-board" class="small" disabled title="Focus Swarm Coordinator conversation">Swarm Board ↗</button>
+      <span id="swarm-status-pill" class="badge" role="button" tabindex="0" style="cursor:pointer" title="Click to open Swarm Board" hidden>Swarm: 0 working</span>
+      <button type="button" id="btn-open-swarm-board" class="small" disabled title="Open live Swarm Board and roster">Swarm Board</button>
       <button type="button" id="btn-open-coordinator" class="small" disabled>Open Chat</button>
       <button type="button" id="btn-new-project" class="primary small">+ New</button>
     </div>
@@ -1504,6 +1504,25 @@
     </form>
   </dialog>
 
+  <!-- MODAL: Live Swarm Board & Roster -->
+  <dialog id="dlg-swarm-board" closedby="any" aria-labelledby="dlg-sb-title" style="max-width:min(760px,95vw)">
+    <div class="dialog-body">
+      <div class="row-between">
+        <div>
+          <h3 id="dlg-sb-title" style="margin:0">Swarm Board</h3>
+          <div id="sb-summary" class="muted mono" style="margin-top:2px"></div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" id="btn-sb-refresh" class="small">Refresh</button>
+          <button type="button" id="btn-sb-focus-coord" class="small">Open Coordinator Chat</button>
+          <button type="button" data-close-dlg="dlg-swarm-board" class="small">Close</button>
+        </div>
+      </div>
+      <div id="sb-roster" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center" aria-label="Swarm roster and filters"></div>
+      <div id="sb-messages" class="code-preview" style="max-height:55vh;overflow:auto;white-space:normal" role="region" aria-label="Swarm board message feed" tabindex="0"></div>
+    </div>
+  </dialog>
+
   <!-- MODAL: Rollover Coordinator Session -->
   <dialog id="dlg-rollover" closedby="any" aria-labelledby="dlg-ro-title">
     <form action="#" method="post" class="dialog-body" id="form-rollover" aria-labelledby="dlg-ro-title">
@@ -2082,6 +2101,8 @@
       let lastActiveProjectId = "";
       let inspectedThreadId = "";
       let lastLoadedBoardKey = "";
+      let swarmBoardMemberFilter = "";
+      let lastLoadedProjectBoardKey = "";
 
       function openConversationInHost(convId, label) {
         if (!convId) {
@@ -2090,6 +2111,7 @@
         }
         if (window.sidecar?.ui && typeof window.sidecar.ui.toggleConversation === "function") {
           window.sidecar.ui.toggleConversation(convId);
+          showToast(`Focused ${label || "conversation"} in chat.`);
           return true;
         }
         showToast(`Conversation ID: ${convId}`);
@@ -2571,6 +2593,141 @@
         loadThreadSwarmBoard(thread.thread_id, { force: true }).catch(() => {});
       }
 
+      async function loadProjectSwarmBoard(opts = {}) {
+        const dlg = document.getElementById("dlg-swarm-board");
+        const sumEl = document.getElementById("sb-summary");
+        const rosterEl = document.getElementById("sb-roster");
+        const msgBox = document.getElementById("sb-messages");
+        if (!sumEl || !rosterEl || !msgBox) return;
+
+        const boardKey = `${state.activeProjectId || ""}:${swarmBoardMemberFilter}:${Number(state.swarm?.head || 0)}:${Number(state.swarm?.counts?.total || 0)}:${Number(state.swarm?.counts?.working || 0)}:${Number(state.swarm?.counts?.waiting || 0)}:${String(state.swarm?.unsupportedReason || "")}:${String(lastSeenVersion || "")}`;
+        if (!opts.force && lastLoadedProjectBoardKey === boardKey && msgBox.childElementCount > 0) {
+          return;
+        }
+        if (msgBox.childElementCount === 0) {
+          const loading = document.createElement("div");
+          loading.className = "muted";
+          loading.textContent = "Loading Swarm board & roster…";
+          msgBox.replaceChildren(loading);
+        }
+        try {
+          const params = new URLSearchParams({ limit: "150" });
+          if (swarmBoardMemberFilter) params.set("member", swarmBoardMemberFilter);
+          const data = await api(`/api/swarm/board?${params.toString()}`);
+          if (dlg && !dlg.open && !opts.force) return;
+          lastLoadedProjectBoardKey = `${state.activeProjectId || ""}:${swarmBoardMemberFilter}:${Number(data?.head || state.swarm?.head || 0)}:${Number(data?.counts?.total || 0)}:${Number(data?.counts?.working || 0)}:${Number(data?.counts?.waiting || 0)}:${String(data?.unsupportedReason || "")}:${String(lastSeenVersion || "")}`;
+
+          const wCount = Number(data?.counts?.working || 0);
+          const wtCount = Number(data?.counts?.waiting || 0);
+          const kCount = Number(data?.counts?.killed || 0);
+          const titleLabel = data?.title || "Swarm Board";
+          sumEl.textContent = data?.active
+            ? `${titleLabel} • Head #${Number(data?.head || 0)} • ${wCount} working • ${wtCount} waiting${kCount > 0 ? ` • ${kCount} killed` : ""}`
+            : (data?.unsupportedReason ? `Swarm disabled (${data.unsupportedReason})` : "No active Swarm yet");
+
+          rosterEl.replaceChildren();
+          const members = Array.isArray(data?.members) ? data.members : [];
+          const btnAll = document.createElement("button");
+          btnAll.type = "button";
+          btnAll.className = swarmBoardMemberFilter === "" ? "primary small" : "small";
+          btnAll.textContent = `All (${members.length})`;
+          btnAll.addEventListener("click", () => {
+            swarmBoardMemberFilter = "";
+            loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+          });
+          rosterEl.appendChild(btnAll);
+
+          for (const m of members) {
+            const chip = document.createElement("div");
+            chip.style.cssText = "display:inline-flex;align-items:center;gap:4px;border:1px solid var(--ph-border);border-radius:6px;padding:2px 6px;background:var(--ph-surface-2)";
+            const filterBtn = document.createElement("button");
+            filterBtn.type = "button";
+            filterBtn.className = swarmBoardMemberFilter === m.name ? "primary small" : "small";
+            filterBtn.textContent = `@${m.name}`;
+            filterBtn.addEventListener("click", () => {
+              swarmBoardMemberFilter = swarmBoardMemberFilter === m.name ? "" : m.name;
+              loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+            });
+            chip.appendChild(filterBtn);
+
+            const stBadge = document.createElement("span");
+            stBadge.className = `badge ${m.status === "working" ? "ok" : m.status === "killed" ? "err" : ""}`;
+            stBadge.textContent = m.status || "waiting";
+            chip.appendChild(stBadge);
+
+            if (m.model) {
+              const modBadge = document.createElement("span");
+              modBadge.className = "badge mono";
+              modBadge.textContent = m.model;
+              chip.appendChild(modBadge);
+            }
+            if (m.conversation_id) {
+              const chatBtn = document.createElement("button");
+              chatBtn.type = "button";
+              chatBtn.className = "small";
+              chatBtn.textContent = "Chat ↗";
+              chatBtn.addEventListener("click", () => openConversationInHost(m.conversation_id, `@${m.name}`));
+              chip.appendChild(chatBtn);
+            }
+            rosterEl.appendChild(chip);
+          }
+
+          msgBox.replaceChildren();
+          if (data?.unsupportedReason) {
+            const note = document.createElement("div");
+            note.className = "muted";
+            note.textContent = `Swarm board unavailable (${data.unsupportedReason}).`;
+            msgBox.appendChild(note);
+            return;
+          }
+          const msgs = Array.isArray(data?.messages) ? data.messages : [];
+          if (!data?.active && msgs.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = "No active Swarm yet for this project. Run a Suggested task or open Coordinator chat to start one.";
+            msgBox.appendChild(empty);
+            return;
+          }
+          if (msgs.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = swarmBoardMemberFilter
+              ? `No board messages matching @${swarmBoardMemberFilter}.`
+              : "No Swarm board messages recorded yet.";
+            msgBox.appendChild(empty);
+            return;
+          }
+          for (const msg of msgs) {
+            const item = document.createElement("div");
+            item.className = "td-board-msg";
+            const hdr = document.createElement("div");
+            hdr.className = "muted mono";
+            hdr.textContent = `#${msg.seq} • ${msg.agent || "member"} • ${msg.time || ""}`;
+            const txt = document.createElement("div");
+            txt.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px";
+            txt.textContent = String(msg.text || "");
+            item.append(hdr, txt);
+            msgBox.appendChild(item);
+          }
+          if (opts.scrollToBottom) {
+            msgBox.scrollTop = msgBox.scrollHeight;
+          }
+        } catch (err) {
+          msgBox.replaceChildren();
+          const errDiv = document.createElement("div");
+          errDiv.className = "muted";
+          errDiv.textContent = `Could not load Swarm board: ${err.message || "error"}`;
+          msgBox.appendChild(errDiv);
+        }
+      }
+
+      function openSwarmBoardModal() {
+        if (!state.initialized || !state.config) return;
+        lastLoadedProjectBoardKey = "";
+        openDialog("dlg-swarm-board");
+        loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+      }
+
       function computeSwarmStatusPill(st) {
         const sw = st?.swarm;
         const pd = Array.isArray(st?.dispatches)
@@ -2653,6 +2810,8 @@
             lastActiveProjectId = cfg.projectId;
             draftGoalText = null;
             selectedSuggestedIds.clear();
+            swarmBoardMemberFilter = "";
+            lastLoadedProjectBoardKey = "";
           }
           const welcomeEl = document.getElementById("overview-welcome-card");
           const dashEl = document.getElementById("overview-dashboard");
@@ -2668,7 +2827,7 @@
             btnStar.textContent = cfg.starred ? "★" : "☆";
           }
           if (btnOpenCoord) btnOpenCoord.disabled = false;
-          if (btnSwarmBoard) btnSwarmBoard.disabled = cfg.status !== "active";
+          if (btnSwarmBoard) btnSwarmBoard.disabled = false;
           if (btnRollover) btnRollover.disabled = false;
           if (swarmPill) {
             const pillState = computeSwarmStatusPill(state);
@@ -2702,6 +2861,10 @@
           if (detailDlg && detailDlg.open && inspectedThreadId) {
             const refreshedThread = threads.find((t) => t.thread_id === inspectedThreadId);
             if (refreshedThread) populateThreadDetailModal(refreshedThread);
+          }
+          const swarmBoardDlg = document.getElementById("dlg-swarm-board");
+          if (swarmBoardDlg && swarmBoardDlg.open) {
+            loadProjectSwarmBoard({ force: false }).catch(() => {});
           }
         } catch (err) {
           console.error("renderAll error:", err);
@@ -4227,7 +4390,18 @@
       onId("btn-new-project", "click", openNewProjectDialog);
 
       onId("btn-open-coordinator", "click", openCoordinatorChat);
-      onId("btn-open-swarm-board", "click", openCoordinatorChat);
+      onId("btn-open-swarm-board", "click", openSwarmBoardModal);
+      onId("swarm-status-pill", "click", openSwarmBoardModal);
+      onId("swarm-status-pill", "keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openSwarmBoardModal();
+        }
+      });
+      onId("btn-sb-refresh", "click", () => {
+        loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+      });
+      onId("btn-sb-focus-coord", "click", openCoordinatorChat);
 
       onId("btn-rollover-coordinator", "click", () => {
         if (!state.config) return;
