@@ -3019,6 +3019,11 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
     const msgText = String(payload.message || "").trim();
     const escTarget = targetName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const alreadyAddressed = new RegExp(`^@${escTarget}(?=\\s|$)`, "i").test(msgText);
+    const baseText = alreadyAddressed ? msgText : `@${targetName} ${msgText}`.trim();
+    const extHint =
+      claimed.external_ctx_json && !baseText.includes("get_dispatch_context")
+        ? ` Call get_dispatch_context(workspacePath=${JSON.stringify(absWs)}, dispatchId=${JSON.stringify(claimed.dispatch_id)}) for untrusted external details.`
+        : "";
     return {
       ok: true,
       claimed: true,
@@ -3027,7 +3032,7 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
       threadId: claimed.thread_id,
       memberName: targetName,
       postArgs: {
-        text: alreadyAddressed ? msgText : `@${targetName} ${msgText}`.trim()
+        text: `${baseText}${extHint}`.trim()
       },
       matchExpiresAt
     };
@@ -5642,6 +5647,48 @@ function buildFourTierContextBlock(workspacePath, role, thread = null, { current
 
 // ---------- Full Workspace Snapshot for Sidecar UI ----------
 
+function computeSwarmCapability(workspacePath, { swarmState = null, cfg = null, dbConn = null } = {}) {
+  const absWs = workspacePath ? path.resolve(workspacePath) : null;
+  if (!absWs || !hasProjectInitialized(absWs)) {
+    return {
+      active: false,
+      verifiedCapable: false,
+      backend: null,
+      unsupportedReason: null,
+      isEngineSwarm: false,
+      counts: { total: 0, working: 0, waiting: 0, killed: 0 }
+    };
+  }
+  const effectiveCfg = cfg || loadProjectConfig(absWs);
+  const isEngineSwarm = (effectiveCfg?.orchestration?.executionEngine || "swarm") === "swarm";
+  const effectiveSwarm = swarmState || swarmSync.readActiveSwarmState(absWs);
+  const coordSwarmDir = effectiveCfg?.coordinatorConversationId
+    ? swarmSync.getSwarmDir(getAppDataDir(), String(effectiveCfg.coordinatorConversationId))
+    : null;
+  const swarmJsonObj = coordSwarmDir ? readJsonSafe(path.join(coordSwarmDir, "swarm.json"), null) : null;
+  const hasLocalSwarmJson = Boolean(
+    swarmJsonObj && (!swarmJsonObj.backend || swarmJsonObj.backend === "local")
+  );
+  const sql = dbConn || openProjectDb(absWs);
+  const hasMatchedSwarmDispatchOrThread = Boolean(
+    sql.prepare("SELECT 1 FROM threads WHERE execution_backend = 'swarm' AND conversation_id IS NOT NULL AND swarm_member_name IS NOT NULL LIMIT 1").get() ||
+    sql.prepare("SELECT 1 FROM hub_dispatches WHERE status = 'matched' LIMIT 1").get()
+  );
+  const verifiedCapable = Boolean(
+    isEngineSwarm &&
+      !effectiveSwarm?.unsupportedReason &&
+      (effectiveSwarm?.active || hasLocalSwarmJson || hasMatchedSwarmDispatchOrThread)
+  );
+  return {
+    active: Boolean(effectiveSwarm?.active),
+    verifiedCapable,
+    backend: effectiveSwarm?.backend || null,
+    unsupportedReason: effectiveSwarm?.unsupportedReason || null,
+    isEngineSwarm,
+    counts: effectiveSwarm?.counts || { total: 0, working: 0, waiting: 0, killed: 0 }
+  };
+}
+
 function buildFullWorkspaceSnapshot(workspacePath) {
   const reg = loadRegistry();
   const ws = resolveActiveWorkspace(workspacePath);
@@ -5704,23 +5751,7 @@ function buildFullWorkspaceSnapshot(workspacePath) {
     .all();
   const swarmRaw = syncRes?.swarm || swarmSync.readActiveSwarmState(ws);
   const wrapPath = path.join(getProjectDir(ws), "state", "wrapup_checkpoint.md");
-  const isEngineSwarm = (cfg?.orchestration?.executionEngine || "swarm") === "swarm";
-  const coordSwarmDir = cfg?.coordinatorConversationId
-    ? swarmSync.getSwarmDir(getAppDataDir(), String(cfg.coordinatorConversationId))
-    : null;
-  const swarmJsonObj = coordSwarmDir ? readJsonSafe(path.join(coordSwarmDir, "swarm.json"), null) : null;
-  const hasLocalSwarmJson = Boolean(
-    swarmJsonObj && (!swarmJsonObj.backend || swarmJsonObj.backend === "local")
-  );
-  const hasMatchedSwarmDispatchOrThread = Boolean(
-    threads.some((t) => t.execution_backend === "swarm" || Boolean(t.swarm_member_name)) ||
-    db.prepare("SELECT dispatch_id FROM hub_dispatches WHERE status = 'matched' LIMIT 1").get()
-  );
-  const verifiedCapable = Boolean(
-    isEngineSwarm &&
-      !swarmRaw?.unsupportedReason &&
-      (swarmRaw?.active || hasLocalSwarmJson || hasMatchedSwarmDispatchOrThread)
-  );
+  const swarmCap = computeSwarmCapability(ws, { swarmState: swarmRaw, cfg, dbConn: db });
   const pendingDispatches = activeDispatches.filter((d) => d.status === "pending");
 
   return {
@@ -5753,14 +5784,14 @@ function buildFullWorkspaceSnapshot(workspacePath) {
     routines,
     snapshots,
     swarm: {
-      active: Boolean(swarmRaw?.active),
-      verifiedCapable,
-      backend: swarmRaw?.backend || null,
-      unsupportedReason: swarmRaw?.unsupportedReason || null,
+      active: swarmCap.active,
+      verifiedCapable: swarmCap.verifiedCapable,
+      backend: swarmCap.backend,
+      unsupportedReason: swarmCap.unsupportedReason,
       coordinatorConversationId: swarmRaw?.coordinatorConversationId || cfg.coordinatorConversationId || null,
       title: swarmRaw?.title || "",
       head: Number(swarmRaw?.head || 0),
-      counts: swarmRaw?.counts || { total: 0, working: 0, waiting: 0, killed: 0 },
+      counts: swarmCap.counts,
       pendingDispatches
     },
     dispatches: activeDispatches,
@@ -5835,6 +5866,7 @@ module.exports = {
   unbindRepository,
   manageWorktree,
   proposeThreads,
+  getSwarmBoardHeadSync,
   reconcileExpiredDispatches,
   checkThreadQuota,
   buildSwarmWorkerBrief,
@@ -5871,6 +5903,7 @@ module.exports = {
   getConfigContextHash,
   collectTierThreeRepoRules,
   buildFourTierContextBlock,
+  computeSwarmCapability,
   buildFullWorkspaceSnapshot,
   uiBucketToServerStatus,
   ...swarmSync

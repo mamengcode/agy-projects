@@ -53,27 +53,63 @@ function getUiAssetMtimeMs() {
   }
 }
 
-function statMtimeFloor(filePath) {
-  if (!filePath) return 0;
+function statFileSig(filePath) {
+  if (!filePath) return "0:0";
   try {
-    return Math.floor(fs.statSync(filePath).mtimeMs);
+    const st = fs.statSync(filePath);
+    return `${Math.floor(st.mtimeMs)}:${st.size}`;
   } catch {
-    return 0;
+    return "0:0";
   }
 }
 
 function getCompositeVersion(workspaceHint) {
   const regPath = path.join(db.getSharedDataDir(), "projects_registry.json");
-  const regMtime = statMtimeFloor(regPath);
+  const regSig = statFileSig(regPath);
   const ws = db.resolveActiveWorkspace(workspaceHint || undefined);
-  if (!ws) return `${stateVersion}:${regMtime}:none`;
+  if (!ws) return `${stateVersion}:${regSig}:none`;
   const pDir = db.getProjectDir(ws);
-  const cfgMtime = statMtimeFloor(path.join(pDir, "config.json"));
-  const dbMtime = statMtimeFloor(path.join(pDir, "state", "project_index.db"));
-  const walMtime = statMtimeFloor(path.join(pDir, "state", "project_index.db-wal"));
-  const shmMtime = statMtimeFloor(path.join(pDir, "state", "project_index.db-shm"));
-  const memMtime = statMtimeFloor(path.join(pDir, "memory", "MEMORY.md"));
-  return `${stateVersion}:${regMtime}:${cfgMtime}:${dbMtime}:${walMtime}:${shmMtime}:${memMtime}`;
+  const cfgPath = path.join(pDir, "config.json");
+  const cfgSig = statFileSig(cfgPath);
+  const dbSig = statFileSig(path.join(pDir, "state", "project_index.db"));
+  const walSig = statFileSig(path.join(pDir, "state", "project_index.db-wal"));
+  const shmSig = statFileSig(path.join(pDir, "state", "project_index.db-shm"));
+  const memSig = statFileSig(path.join(pDir, "memory", "MEMORY.md"));
+
+  let swarmSig = "none";
+  try {
+    const cfg = db.readJsonSafe(cfgPath, null);
+    const coordId = cfg?.coordinatorConversationId ? String(cfg.coordinatorConversationId).trim() : "";
+    if (coordId) {
+      const appDataDir = db.getAppDataDir();
+      const swarmDir = db.getSwarmDir(appDataDir, coordId);
+      if (swarmDir) {
+        const sjSig = statFileSig(path.join(swarmDir, "swarm.json"));
+        const memJsonPath = path.join(swarmDir, "members.json");
+        const mjSig = statFileSig(memJsonPath);
+        const brdSig = statFileSig(path.join(swarmDir, "board.jsonl"));
+        const trSigs = [];
+        const roster = db.readJsonSafe(memJsonPath, null);
+        const members =
+          roster?.members && typeof roster.members === "object" && !Array.isArray(roster.members)
+            ? roster.members
+            : {};
+        const SYSTEM_SWARM_NAME_RE = /^(?:coordinator|narrator|monitor)(?:-\d+)?$/i;
+        for (const name of Object.keys(members).sort()) {
+          const m = members[name];
+          if (!m || typeof m !== "object" || m.role !== "worker") continue;
+          if (SYSTEM_SWARM_NAME_RE.test(String(name || ""))) continue;
+          if (m.killed || m.desired_state === "KILLED" || m.phase === "KILLED") continue;
+          if (!m.conversation_id) continue;
+          const trPath = db.getTranscriptPath(appDataDir, String(m.conversation_id));
+          if (trPath) trSigs.push(`${name}=${statFileSig(trPath)}`);
+        }
+        swarmSig = `${sjSig}|${mjSig}|${brdSig}|${trSigs.join(",")}`;
+      }
+    }
+  } catch {}
+
+  return `${stateVersion}:${regSig}:${cfgSig}:${dbSig}:${walSig}:${shmSig}:${memSig}:${swarmSig}`;
 }
 
 function verifyToken(candidate) {
@@ -115,26 +151,286 @@ function loadPreloadJs() {
   return "// AGY Project Hub preload stub\nwindow.__sidecarReady = true;\n";
 }
 
-function runAgentApi(args, projectId) {
+const coordinatorStartLocks = new Map(); // absWs -> Promise
+
+function extractNewConversationId(agentRes) {
+  if (!agentRes || typeof agentRes !== "object") return null;
+  return (
+    agentRes.conversationId ||
+    agentRes.response?.conversationId ||
+    agentRes.response?.newConversation?.conversationId ||
+    null
+  );
+}
+
+function runAgentApi(args, projectId, opts = {}) {
   return new Promise((resolve) => {
     const env = { ...process.env };
     if (projectId) env.ANTIGRAVITY_PROJECT_ID = String(projectId);
     const exe = process.env.ANTIGRAVITY_AGENTAPI_EXE?.trim();
     const file = exe || "agentapi";
     const execArgs = exe && path.basename(exe) !== "agentapi" ? ["agentapi", ...args] : args;
-    execFile(file, execArgs, { encoding: "utf8", env, timeout: 15000 }, (err, stdout, stderr) => {
+    const timeoutMs = Number(opts.timeoutMs || process.env.AGY_AGENTAPI_TIMEOUT_MS || 15000);
+    const execOpts = {
+      encoding: "utf8",
+      env,
+      timeout: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 15000
+    };
+    if (opts.cwd) execOpts.cwd = path.resolve(opts.cwd);
+    execFile(file, execArgs, execOpts, (err, stdout, stderr) => {
       if (err) {
-        resolve({ error: err.message, stderr: stderr ? String(stderr) : undefined });
+        const spawnFailed = err.code === "ENOENT" || err.code === "EACCES";
+        const timedOut = Boolean(err.killed || err.signal === "SIGTERM" || err.code === "ETIMEDOUT");
+        resolve({
+          ok: false,
+          spawnFailed,
+          timedOut,
+          code: err.code ?? null,
+          error: err.message,
+          stderr: stderr ? String(stderr) : undefined
+        });
         return;
       }
       const out = String(stdout || "").trim();
       try {
-        resolve(out ? JSON.parse(out) : { success: true });
+        const parsed = out ? JSON.parse(out) : { success: true };
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          const hasErr = Boolean(parsed.error);
+          resolve({
+            ok: !hasErr,
+            spawnFailed: false,
+            timedOut: false,
+            ...parsed
+          });
+        } else {
+          resolve({ ok: true, spawnFailed: false, timedOut: false, data: parsed });
+        }
       } catch {
-        resolve({ success: true, raw: out });
+        resolve({ ok: true, spawnFailed: false, timedOut: false, success: true, raw: out });
       }
     });
   });
+}
+
+async function ensureCoordinatorBound(workspacePath, { autoSpawn = true } = {}) {
+  const absWs = path.resolve(workspacePath);
+  if (coordinatorStartLocks.has(absWs)) {
+    return coordinatorStartLocks.get(absWs);
+  }
+  const p = (async () => {
+    const cfg = db.loadProjectConfig(absWs);
+    if (!cfg) throw new Error("Project config not found.");
+    if (cfg.status !== "active") {
+      const err = new Error(`Project '${cfg.name}' is ${cfg.status.toUpperCase()}. Resume it before launching Coordinator.`);
+      err.statusCode = 409;
+      throw err;
+    }
+    if (cfg.coordinatorConversationId) {
+      return {
+        ok: true,
+        alreadyBound: true,
+        spawned: false,
+        coordinatorConversationId: cfg.coordinatorConversationId,
+        projectId: cfg.projectId
+      };
+    }
+    if (!autoSpawn) {
+      return {
+        ok: false,
+        spawnFailed: false,
+        timedOut: false,
+        error: "No coordinator conversation bound to this project."
+      };
+    }
+
+    const introPrompt = [
+      `You are the Project Coordinator for "${cfg.name}" (${absWs}).`,
+      cfg.goal ? `Goal: ${cfg.goal}` : "",
+      `Before acting on any [PROJECT HUB DISPATCH id=... nonce=...] message, ALWAYS call claim_hub_dispatch(workspacePath=${JSON.stringify(absWs)}, dispatchId, nonce) first and perform only its returned structured Swarm action.`
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const agentRes = await runAgentApi(
+      ["new-conversation", "--title", `${cfg.name} Coordinator`, introPrompt],
+      cfg.projectId,
+      { cwd: absWs }
+    );
+    if (!agentRes.ok) {
+      return {
+        ok: false,
+        spawnFailed: Boolean(agentRes.spawnFailed),
+        timedOut: Boolean(agentRes.timedOut),
+        error: agentRes.error || "Failed to start Coordinator conversation."
+      };
+    }
+    const newCoordId = extractNewConversationId(agentRes);
+    if (!newCoordId || !db.VALID_CONV_ID_RE.test(String(newCoordId))) {
+      return {
+        ok: false,
+        spawnFailed: false,
+        timedOut: false,
+        error: "agentapi new-conversation returned no valid conversationId."
+      };
+    }
+
+    // Persist Coordinator binding BEFORE releasing lock or sending dispatch #2
+    db.selectProject({
+      projectId: cfg.projectId,
+      workspacePath: absWs,
+      bindCoordinatorConversationId: String(newCoordId)
+    });
+    broadcastSnapshot(absWs);
+    return {
+      ok: true,
+      alreadyBound: false,
+      spawned: true,
+      coordinatorConversationId: String(newCoordId),
+      projectId: cfg.projectId
+    };
+  })();
+
+  coordinatorStartLocks.set(absWs, p);
+  try {
+    return await p;
+  } finally {
+    if (coordinatorStartLocks.get(absWs) === p) {
+      coordinatorStartLocks.delete(absWs);
+    }
+  }
+}
+
+async function relayToCoordinator(
+  workspacePath,
+  dispatch,
+  { ensureCoordinator = false, fallbackHeadless = null } = {}
+) {
+  const absWs = path.resolve(workspacePath);
+  let cfg = db.loadProjectConfig(absWs);
+  if (!cfg) throw new Error("Project config not found.");
+
+  const handleSpawnFail = (errMsg) => {
+    try {
+      db.failHubDispatch(absWs, dispatch.dispatchId, dispatch.nonce, errMsg || "agentapi spawn failed (pre-delivery)");
+    } catch {}
+    if (typeof fallbackHeadless === "function") {
+      const hlRes = fallbackHeadless();
+      if (hlRes && !hlRes.headlessAuthMissing && hlRes.started !== false) {
+        try {
+          db.updateThreadState(absWs, {
+            threadId: dispatch.threadId,
+            uiBucket: "working",
+            clearBlockingQuestion: true,
+            summary: "Fallback to Headless SDK worker."
+          });
+          db.openProjectDb(absWs)
+            .prepare("UPDATE threads SET execution_backend = 'headless' WHERE thread_id = ?")
+            .run(dispatch.threadId);
+        } catch {}
+      }
+      return {
+        dispatchedVia: "headless",
+        ...hlRes,
+        dispatchId: dispatch.dispatchId,
+        fallbackReason: errMsg
+      };
+    }
+    return {
+      dispatchedVia: "swarm",
+      ok: false,
+      started: false,
+      spawnFailed: true,
+      timedOut: false,
+      dispatchId: dispatch.dispatchId,
+      error: errMsg
+    };
+  };
+
+  if (!cfg.coordinatorConversationId) {
+    if (!ensureCoordinator) {
+      if (typeof fallbackHeadless === "function") {
+        return handleSpawnFail("No Swarm Coordinator bound.");
+      }
+      try {
+        db.failHubDispatch(absWs, dispatch.dispatchId, dispatch.nonce, "No Swarm Coordinator bound.");
+      } catch {}
+      return {
+        dispatchedVia: "swarm",
+        ok: false,
+        started: false,
+        spawnFailed: false,
+        timedOut: false,
+        dispatchId: dispatch.dispatchId,
+        error: "No Swarm Coordinator bound."
+      };
+    }
+    const ensureRes = await ensureCoordinatorBound(absWs, { autoSpawn: true });
+    if (!ensureRes.ok) {
+      if (ensureRes.spawnFailed) {
+        return handleSpawnFail(ensureRes.error);
+      }
+      if (!ensureRes.timedOut) {
+        try {
+          db.failHubDispatch(
+            absWs,
+            dispatch.dispatchId,
+            dispatch.nonce,
+            ensureRes.error || "Coordinator ensure failed."
+          );
+        } catch {}
+      }
+      return {
+        dispatchedVia: "swarm",
+        ok: false,
+        started: Boolean(ensureRes.timedOut),
+        spawnFailed: false,
+        timedOut: Boolean(ensureRes.timedOut),
+        dispatchId: dispatch.dispatchId,
+        error: ensureRes.error
+      };
+    }
+    cfg = db.loadProjectConfig(absWs);
+  }
+
+  const coordId = cfg.coordinatorConversationId;
+  const relayText = `[PROJECT HUB DISPATCH id=${dispatch.dispatchId} nonce=${dispatch.nonce}] Call claim_hub_dispatch(workspacePath=${JSON.stringify(absWs)}, dispatchId=${JSON.stringify(dispatch.dispatchId)}, nonce=${JSON.stringify(dispatch.nonce)}) first and perform only the returned structured action.`;
+  const sendRes = await runAgentApi(["send-message", coordId, relayText], cfg.projectId, { cwd: absWs });
+
+  if (sendRes.ok) {
+    return {
+      dispatchedVia: "swarm",
+      ok: true,
+      started: true,
+      spawnFailed: false,
+      timedOut: false,
+      dispatchId: dispatch.dispatchId,
+      coordinatorConversationId: coordId
+    };
+  }
+  if (sendRes.spawnFailed) {
+    return handleSpawnFail(sendRes.error || "agentapi pre-delivery spawn error");
+  }
+  // Never fall back to Headless SDK on 15s timeout or ambiguous post-spawn error;
+  // fail non-timeout relay errors so reserved_slots and active_dispatch_id do not leak.
+  if (!sendRes.timedOut) {
+    try {
+      db.failHubDispatch(
+        absWs,
+        dispatch.dispatchId,
+        dispatch.nonce,
+        sendRes.error || "agentapi send-message failed"
+      );
+    } catch {}
+  }
+  return {
+    dispatchedVia: "swarm",
+    ok: false,
+    started: Boolean(sendRes.timedOut),
+    spawnFailed: false,
+    timedOut: Boolean(sendRes.timedOut),
+    dispatchId: dispatch.dispatchId,
+    error: sendRes.error || "agentapi send-message failed"
+  };
 }
 
 function injectSidecarBootstrap(rawHtml, token, conversationId) {
@@ -328,8 +624,32 @@ function collectDiagnostics(workspacePath) {
     ? `Credentials present (${accountFiles.join(", ")})${authProviderPluginCount > 0 ? ` • ${authProviderPluginCount} plugin(s) with auth metadata` : ""}`
     : `No OAuth account files detected in ~/.gemini/${authProviderPluginCount > 0 ? ` • ${authProviderPluginCount} plugin(s) with auth metadata` : ""}`;
 
+  const swarmCap = absWs ? db.computeSwarmCapability(absWs, { cfg }) : { active: false, verifiedCapable: false, backend: null, unsupportedReason: null, isEngineSwarm: false, counts: { total: 0, working: 0, waiting: 0, killed: 0 } };
+  let builtinSwarmSummary = "No active project initialized";
+  if (absWs && cfg) {
+    if (swarmCap.unsupportedReason) {
+      builtinSwarmSummary = `Built-in Swarm disabled (${swarmCap.unsupportedReason})`;
+    } else if (swarmCap.verifiedCapable && swarmCap.active) {
+      builtinSwarmSummary = `Local Swarm active (${swarmCap.counts.working} working, ${swarmCap.counts.waiting} waiting)`;
+    } else if (swarmCap.verifiedCapable) {
+      builtinSwarmSummary = "Built-in local Swarm verified and ready";
+    } else if (!swarmCap.isEngineSwarm) {
+      builtinSwarmSummary = `Execution engine configured as '${cfg?.orchestration?.executionEngine || "subagent"}'`;
+    } else {
+      builtinSwarmSummary = "Built-in Swarm unverified (no active swarm or local swarm.json detected yet)";
+    }
+  }
+
   const connectors = {
     mcpServer: { ok: true, label: "agy_projects_mcp (stdio active)" },
+    builtinSwarm: {
+      ok: Boolean(swarmCap.verifiedCapable),
+      active: Boolean(swarmCap.active),
+      verifiedCapable: Boolean(swarmCap.verifiedCapable),
+      backend: swarmCap.backend || null,
+      unsupportedReason: swarmCap.unsupportedReason || null,
+      summary: builtinSwarmSummary
+    },
     githubCli: {
       ok: ghAuthCache.authenticated,
       installed: ghAuthCache.installed,
@@ -363,7 +683,7 @@ function broadcastSnapshot(workspacePath) {
   try {
     const snap = db.buildFullWorkspaceSnapshot(workspacePath);
     snap.runningHeadlessKeys = getRunningHeadlessList();
-    snap.version = stateVersion;
+    snap.version = getCompositeVersion(workspacePath);
     snap.uiAssetMtimeMs = getUiAssetMtimeMs();
     const frame = `event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`;
     for (const client of sseClients) {
@@ -432,10 +752,7 @@ function spawnHeadlessSdkWorker(workspacePath, { threadId, mode = "readonly", cw
   if (mode === "write" && effectiveCwd === absWs) {
     effectiveCwd = db.ensureThreadIsolationCwd(absWs, threadId);
   }
-  const effectiveModel =
-    thread?.model && thread.model !== "inherit"
-      ? thread.model
-      : (db.getRoleModelOverride(cfg, thread?.role) || cfg?.models?.defaultThreadModel || "inherit");
+  const effectiveModel = db.resolveHeadlessModel(thread, cfg);
 
   const secretStatusList = Array.isArray(envCfg.secretRefs)
     ? envCfg.secretRefs.map((k) => `${k}=${mergedEnv[k] ? "present" : "missing"}`)
@@ -588,40 +905,155 @@ function startHeadlessWorkerOrHandleAuth(workspacePath, { threadId, mode = "read
 async function syncWorkspacePullRequests(workspacePath, triggerAutoFix = false) {
   return db.syncPullRequestsAsync(workspacePath, {
     triggerAutoFix,
-    onSpawnAutoFix: ({ threadId, cwd, prompt }) =>
-      startHeadlessWorkerOrHandleAuth(workspacePath, {
-        threadId,
-        mode: "write",
-        cwd,
-        prompt
-      })
+    onSpawnAutoFix: async (payload) => {
+      const absWs = path.resolve(workspacePath);
+      const cfg = db.loadProjectConfig(absWs);
+      const sql = db.openProjectDb(absWs);
+      const threadRow = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(payload.threadId);
+      const useSwarm = Boolean(cfg?.coordinatorConversationId && cfg?.orchestration?.executionEngine !== "headless");
+
+      const runHeadlessPrFallback = () =>
+        startHeadlessWorkerOrHandleAuth(absWs, {
+          threadId: payload.threadId,
+          mode: "write",
+          cwd: payload.cwd,
+          prompt: payload.prompt
+        });
+
+      if (!useSwarm) {
+        return runHeadlessPrFallback();
+      }
+
+      const activeSwarm = db.readActiveSwarmState(absWs);
+      const liveMember = threadRow?.swarm_member_name ? activeSwarm?.members?.[threadRow.swarm_member_name] : null;
+      const hasAliveWorker = Boolean(
+        threadRow?.swarm_member_name &&
+          (!threadRow.swarm_origin_coordinator_id ||
+            threadRow.swarm_origin_coordinator_id === cfg.coordinatorConversationId) &&
+          threadRow.swarm_state !== "killed" &&
+          liveMember &&
+          liveMember.status !== "killed"
+      );
+
+      const externalCtx = {
+        prNumber: payload.prNumber,
+        prUrl: payload.prUrl,
+        repoName: payload.repoName,
+        headBranch: payload.headBranch,
+        baseBranch: payload.baseBranch,
+        cwd: payload.cwd,
+        ciStatus: payload.ciStatus,
+        reviewDecision: payload.reviewDecision,
+        mergeStateStatus: payload.mergeStateStatus,
+        failingChecks: payload.failingChecks,
+        changeReqNotes: payload.changeReqNotes,
+        recentCommentNotes: payload.recentCommentNotes,
+        details: payload.externalContextText
+      };
+
+      const boardHead = db.getSwarmBoardHeadSync(absWs, threadRow);
+      let dispatch;
+      if (hasAliveWorker) {
+        dispatch = db.createHubDispatch(absWs, {
+          threadId: payload.threadId,
+          action: "steer",
+          targetMemberName: threadRow.swarm_member_name,
+          payload: {
+            message: `PR #${payload.prNumber} reported CI=${payload.ciStatus}, review=${payload.reviewDecision}. Fix any failures on branch '${payload.headBranch || ""}'.`
+          },
+          externalCtx,
+          baselineHeadSeq: boardHead,
+          reservedSlots: 0
+        });
+      } else {
+        try {
+          db.checkThreadQuota(absWs, {
+            additionalCount: 1,
+            skipCounts: threadRow?.ui_bucket === "working"
+          });
+        } catch (err) {
+          return { started: false, reason: "quota_exceeded", error: err.message };
+        }
+        dispatch = db.createHubDispatch(absWs, {
+          threadId: payload.threadId,
+          action: "pr_autofix",
+          payload: {
+            role: "pr-fixer",
+            title: `PR #${payload.prNumber} Auto-Fix`,
+            prNumber: payload.prNumber,
+            prUrl: payload.prUrl,
+            repoName: payload.repoName,
+            headBranch: payload.headBranch,
+            baseBranch: payload.baseBranch,
+            ciStatus: payload.ciStatus,
+            reviewDecision: payload.reviewDecision,
+            cwd: payload.cwd
+          },
+          externalCtx,
+          baselineHeadSeq: boardHead,
+          reservedSlots: threadRow?.ui_bucket === "working" ? 0 : 1
+        });
+      }
+
+      return relayToCoordinator(absWs, dispatch, {
+        fallbackHeadless: runHeadlessPrFallback
+      });
+    }
   });
 }
 
 // ---------- Autonomous Background Loops ----------
 
-function runCronTick() {
-  const reg = db.loadRegistry();
-  const now = new Date();
+let cronTickInFlight = false;
+async function runCronTick() {
+  if (cronTickInFlight) return;
+  cronTickInFlight = true;
+  try {
+    const reg = db.loadRegistry();
+    const now = new Date();
+    const nowIsoStr = now.toISOString();
 
-  for (const p of reg.projects) {
-    if (!db.hasProjectInitialized(p.workspacePath)) continue;
-    try {
-      const res = db.processDueSchedules(p.workspacePath, {
-        now,
-        onDispatch: ({ workspacePath, routine, thread, normRole }) => {
-          return startHeadlessWorkerOrHandleAuth(workspacePath, {
-            threadId: thread.thread_id,
-            mode: db.isMutatingRole(normRole) ? "write" : "readonly",
-            cwd: workspacePath,
-            prompt: routine.prompt
+    for (const p of reg.projects) {
+      if (!p?.workspacePath || !db.hasProjectInitialized(p.workspacePath)) continue;
+      let shouldBroadcast = false;
+      try {
+        const exp = db.reconcileExpiredDispatches(p.workspacePath, { now: nowIsoStr });
+        if (exp && exp.expiredCount > 0) shouldBroadcast = true;
+      } catch {}
+      try {
+        const syncRes = db.syncSwarmIntoProjectDb(p.workspacePath);
+        if (syncRes && Number(syncRes.changes || 0) > 0) shouldBroadcast = true;
+      } catch {}
+      try {
+        const cfg = db.loadProjectConfig(p.workspacePath);
+        if (cfg && cfg.status === "active") {
+          const res = await db.processDueSchedules(p.workspacePath, {
+            now,
+            onDispatch: async ({ workspacePath, routine, thread, normRole, dispatch, isSwarm }) => {
+              const runHeadlessRoutineFallback = () =>
+                startHeadlessWorkerOrHandleAuth(workspacePath, {
+                  threadId: thread.thread_id,
+                  mode: db.isMutatingRole(normRole) ? "write" : "readonly",
+                  cwd: workspacePath,
+                  prompt: routine.prompt
+                });
+              if (isSwarm && dispatch) {
+                return relayToCoordinator(workspacePath, dispatch, {
+                  fallbackHeadless: runHeadlessRoutineFallback
+                });
+              }
+              return runHeadlessRoutineFallback();
+            }
           });
+          if (res.dispatched.length > 0 || res.failed.length > 0) {
+            shouldBroadcast = true;
+          }
         }
-      });
-      if (res.dispatched.length > 0 || res.failed.length > 0) {
-        broadcastSnapshot(p.workspacePath);
-      }
-    } catch {}
+      } catch {}
+      if (shouldBroadcast) broadcastSnapshot(p.workspacePath);
+    }
+  } finally {
+    cronTickInFlight = false;
   }
 }
 
@@ -654,8 +1086,9 @@ function runStaleIdleSweep() {
     const days = Number(cfg.orchestration?.idleAutoResolveDays || 7);
     const cutoffIso = new Date(nowMs - days * 86400 * 1000).toISOString();
     const sql = db.openProjectDb(p.workspacePath);
+    // Parked waiting Swarm workers (ui_bucket = 'idle' AND swarm_state = 'waiting') remain asleep until explicitly killed or resolved past idleAutoResolveDays
     const stale = sql
-      .prepare("SELECT thread_id, worktree_path, repo_id FROM threads WHERE ui_bucket = 'idle' AND updated_at <= ?")
+      .prepare("SELECT thread_id, worktree_path, repo_id, execution_backend, swarm_state FROM threads WHERE ui_bucket = 'idle' AND updated_at <= ?")
       .all(cutoffIso);
     for (const t of stale) {
       db.updateThreadState(p.workspacePath, {
@@ -663,13 +1096,14 @@ function runStaleIdleSweep() {
         uiBucket: "resolved",
         summary: `Auto-resolved after ${days} days idle.`
       });
-      if (t.worktree_path) {
+      const isAsleepSwarm = t.execution_backend === "swarm" && (t.swarm_state || "") === "waiting";
+      if (t.worktree_path && !isAsleepSwarm) {
         try { db.manageWorktree(p.workspacePath, { action: "cleanup", threadId: t.thread_id }); } catch {}
       }
     }
     const lingeringResolved = sql
       .prepare(
-        "SELECT thread_id, worktree_path, worktrees_json, repo_id FROM threads WHERE ui_bucket = 'resolved' AND (worktree_path IS NOT NULL OR worktrees_json NOT IN ('', '{}'))"
+        "SELECT thread_id, worktree_path, worktrees_json, repo_id FROM threads WHERE ui_bucket = 'resolved' AND (worktree_path IS NOT NULL OR worktrees_json NOT IN ('', '{}')) AND NOT (execution_backend = 'swarm' AND COALESCE(swarm_state, '') = 'waiting')"
       )
       .all();
     for (const t of lingeringResolved) {
@@ -802,7 +1236,12 @@ const server = http.createServer(async (req, res) => {
       const args = ["new-conversation"];
       if (body.title) args.push("--title", String(body.title));
       args.push(message);
-      const out = await runAgentApi(args, body.projectId);
+      const activeWs = body.workspacePath || db.resolveActiveWorkspace(undefined, body.projectId);
+      const out = await runAgentApi(args, body.projectId, activeWs ? { cwd: activeWs } : {});
+      if (out && out.ok && !out.conversationId) {
+        const extractedId = extractNewConversationId(out);
+        if (extractedId) out.conversationId = extractedId;
+      }
       return sendJson(res, out && out.error ? 502 : 200, out);
     }
 
@@ -816,8 +1255,11 @@ const server = http.createServer(async (req, res) => {
         "X-Accel-Buffering": "no"
       });
       sseClients.add(res);
-      const snap = db.buildFullWorkspaceSnapshot(parsedUrl.searchParams.get("workspacePath") || undefined);
+      const sseWs = parsedUrl.searchParams.get("workspacePath") || undefined;
+      const snap = db.buildFullWorkspaceSnapshot(sseWs);
       snap.runningHeadlessKeys = getRunningHeadlessList();
+      snap.version = getCompositeVersion(sseWs);
+      snap.uiAssetMtimeMs = getUiAssetMtimeMs();
       res.write(`event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`);
       const keepAlive = setInterval(() => {
         try { res.write(": ping\n\n"); } catch {}
@@ -848,7 +1290,7 @@ const server = http.createServer(async (req, res) => {
       snap.runningHeadlessKeys = getRunningHeadlessList();
       snap.accountMemoryContent = fs.readFileSync(db.getAccountMemoryPath(), "utf8");
       snap.diagnostics = collectDiagnostics(wsHint);
-      snap.version = currentVersion;
+      snap.version = getCompositeVersion(wsHint);
       snap.uiAssetMtimeMs = uiAssetMtimeMs;
       return sendJson(res, 200, snap);
     }
@@ -860,6 +1302,35 @@ const server = http.createServer(async (req, res) => {
         await refreshGhAuthStatus();
       }
       return sendJson(res, 200, collectDiagnostics(wsHint));
+    }
+
+    if (req.method === "GET" && pathname === "/api/swarm/thread-board") {
+      const ws = db.resolveActiveWorkspace(
+        parsedUrl.searchParams.get("workspacePath") || undefined,
+        parsedUrl.searchParams.get("projectId") || undefined
+      );
+      if (!ws || !db.hasProjectInitialized(ws)) {
+        return sendJson(res, 404, { error: "No initialized AGY Project found." });
+      }
+      const threadId = parsedUrl.searchParams.get("threadId") || "";
+      if (!threadId) return sendJson(res, 400, { error: "Missing threadId query parameter." });
+      const rawLimit = Number(parsedUrl.searchParams.get("limit") || 100);
+      const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(500, Math.floor(rawLimit)) : 100;
+      const boardRes = db.getThreadBoardMessages(ws, threadId, { limit });
+      if (!boardRes.found) {
+        return sendJson(res, 404, { error: `Thread '${threadId}' not found.` });
+      }
+      const sql = db.openProjectDb(ws);
+      const tRow = sql.prepare("SELECT swarm_state FROM threads WHERE thread_id = ?").get(threadId);
+      return sendJson(res, 200, {
+        threadId: boardRes.threadId,
+        swarmMemberName: boardRes.memberName || null,
+        swarmState: tRow?.swarm_state || null,
+        coordinatorConversationId: boardRes.coordinatorConversationId || null,
+        unsupportedReason: boardRes.unsupportedReason || null,
+        head: boardRes.head || 0,
+        messages: boardRes.messages || []
+      });
     }
 
     if (req.method === "GET" && pathname === "/api/snapshots/preview") {
@@ -1005,13 +1476,138 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { threads: created });
     }
 
+    if (pathname === "/api/coordinator/ensure") {
+      const cfg = db.loadProjectConfig(ws);
+      if (cfg && cfg.status !== "active") {
+        return sendJson(res, 409, {
+          error: `Project '${cfg.name}' is ${cfg.status.toUpperCase()}. Resume it before starting Coordinator.`
+        });
+      }
+      const ensureRes = await ensureCoordinatorBound(ws, { autoSpawn: body.autoSpawn !== false });
+      if (!ensureRes.ok) {
+        return sendJson(res, 502, {
+          ok: false,
+          error: ensureRes.error || "Failed to bind Coordinator.",
+          spawnFailed: Boolean(ensureRes.spawnFailed),
+          timedOut: Boolean(ensureRes.timedOut)
+        });
+      }
+      return sendJson(res, 200, ensureRes);
+    }
+
     if (pathname === "/api/threads/action") {
       const sql = db.openProjectDb(ws);
+      const cfg = db.loadProjectConfig(ws);
       const act = body.action;
+
+      const MUTATING_ACTIONS = new Set([
+        "start",
+        "start_all",
+        "start_selected",
+        "steer",
+        "switch_model",
+        "kill_swarm_worker"
+      ]);
+      if (cfg && cfg.status !== "active" && MUTATING_ACTIONS.has(act)) {
+        return sendJson(res, 409, {
+          error: `Project '${cfg.name}' is ${cfg.status.toUpperCase()}. Resume it before executing '${act}'.`
+        });
+      }
+
+      const isSwarmEngine = (cfg?.orchestration?.executionEngine || "swarm") === "swarm";
+      const wantsSwarmStart = Boolean(
+        !body.launchHeadless &&
+          !body.conversationId &&
+          body.launchViaSwarm !== false &&
+          isSwarmEngine &&
+          (cfg?.coordinatorConversationId || body.autoStartCoordinator)
+      );
+
+      const buildStartHeadlessFallback = (row) => () => {
+        let started = db.registerThread(ws, {
+          threadId: row.thread_id,
+          role: row.role,
+          workspaceMode: row.workspace_mode,
+          executionBackend: "headless"
+        });
+        const sp = startHeadlessWorkerOrHandleAuth(ws, {
+          threadId: row.thread_id,
+          mode: db.isMutatingRole(row.role) ? "write" : "readonly",
+          cwd: row.worktree_path || ws,
+          prompt: body.prompt || `${row.title}\n\n${row.description}`
+        });
+        if (sp.headlessAuthMissing) {
+          started = sp.thread;
+        }
+        return { ...sp, thread: started };
+      };
 
       if (act === "start") {
         const row = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(body.threadId);
         if (!row) return sendJson(res, 404, { error: "Thread not found" });
+
+        if (wantsSwarmStart) {
+          if (!cfg?.coordinatorConversationId && body.autoStartCoordinator) {
+            const ensureRes = await ensureCoordinatorBound(ws, { autoSpawn: true });
+            if (!ensureRes.ok) {
+              if (ensureRes.spawnFailed && body.launchHeadlessFallback) {
+                const fb = buildStartHeadlessFallback(row)();
+                broadcastSnapshot(ws);
+                return sendJson(res, 200, {
+                  thread: fb.thread,
+                  headlessAuthMissing: Boolean(fb.headlessAuthMissing),
+                  dispatchedVia: "headless"
+                });
+              }
+              return sendJson(res, 502, {
+                error: ensureRes.error || "Failed to start Coordinator.",
+                spawnFailed: Boolean(ensureRes.spawnFailed),
+                timedOut: Boolean(ensureRes.timedOut)
+              });
+            }
+          }
+
+          db.checkThreadQuota(ws, { additionalCount: 1, skipCounts: row.ui_bucket === "working" });
+          const dispatch = db.createHubDispatch(ws, {
+            threadId: row.thread_id,
+            action: "start",
+            targetMemberName: body.memberName || row.swarm_member_name || null,
+            payload: {
+              role: row.role,
+              title: row.title,
+              prompt: body.prompt || row.description,
+              workspaceMode: row.workspace_mode,
+              swarmModel: body.swarmModel || row.swarm_model || (row.model && row.model !== "inherit" ? row.model : null)
+            },
+            baselineHeadSeq: db.getSwarmBoardHeadSync(ws, row),
+            reservedSlots: row.ui_bucket === "working" ? 0 : 1
+          });
+
+          const relayRes = await relayToCoordinator(ws, dispatch, {
+            fallbackHeadless: body.launchHeadlessFallback ? buildStartHeadlessFallback(row) : null
+          });
+          broadcastSnapshot(ws);
+          const freshRow = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(row.thread_id);
+          if (!relayRes.ok && !relayRes.timedOut && relayRes.dispatchedVia !== "headless") {
+            return sendJson(res, 502, {
+              error: relayRes.error || "Swarm relay failed.",
+              thread: freshRow,
+              dispatchId: dispatch.dispatchId,
+              dispatchedVia: relayRes.dispatchedVia,
+              spawnFailed: Boolean(relayRes.spawnFailed),
+              timedOut: Boolean(relayRes.timedOut)
+            });
+          }
+          return sendJson(res, 200, {
+            thread: freshRow,
+            dispatchId: dispatch.dispatchId,
+            dispatchedVia: relayRes.dispatchedVia,
+            headlessAuthMissing: Boolean(relayRes.headlessAuthMissing),
+            relayTimedOut: Boolean(relayRes.timedOut),
+            relayError: relayRes.error || null
+          });
+        }
+
         let started = db.registerThread(ws, {
           threadId: row.thread_id,
           role: row.role,
@@ -1035,11 +1631,76 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { thread: started, headlessAuthMissing });
       }
 
-      if (act === "start_all") {
-        const suggested = sql.prepare("SELECT * FROM threads WHERE ui_bucket = 'suggested' ORDER BY created_at ASC").all();
+      if (act === "start_all" || act === "start_selected") {
+        const rows =
+          act === "start_all"
+            ? sql.prepare("SELECT * FROM threads WHERE ui_bucket = 'suggested' ORDER BY created_at ASC").all()
+            : (Array.isArray(body.threadIds) ? body.threadIds.map(String) : [])
+                .map((tid) => sql.prepare("SELECT * FROM threads WHERE thread_id = ? AND ui_bucket = 'suggested'").get(tid))
+                .filter(Boolean);
+
+        if (wantsSwarmStart) {
+          if (!cfg?.coordinatorConversationId && body.autoStartCoordinator) {
+            const ensureRes = await ensureCoordinatorBound(ws, { autoSpawn: true });
+            if (!ensureRes.ok && !(ensureRes.spawnFailed && body.launchHeadlessFallback)) {
+              return sendJson(res, 502, {
+                error: ensureRes.error || "Failed to start Coordinator.",
+                spawnFailed: Boolean(ensureRes.spawnFailed),
+                timedOut: Boolean(ensureRes.timedOut)
+              });
+            }
+          }
+          const dispatchedThreads = [];
+          const dispatchIds = [];
+          let headlessAuthMissing = false;
+          for (const row of rows) {
+            try {
+              db.checkThreadQuota(ws, { additionalCount: 1 });
+              const dispatch = db.createHubDispatch(ws, {
+                threadId: row.thread_id,
+                action: "start",
+                targetMemberName: row.swarm_member_name || null,
+                payload: {
+                  role: row.role,
+                  title: row.title,
+                  prompt: row.description,
+                  workspaceMode: row.workspace_mode,
+                  swarmModel: row.swarm_model || (row.model && row.model !== "inherit" ? row.model : null)
+                },
+                baselineHeadSeq: db.getSwarmBoardHeadSync(ws, row),
+                reservedSlots: 1
+              });
+              const relayRes = await relayToCoordinator(ws, dispatch, {
+                fallbackHeadless: body.launchHeadlessFallback ? buildStartHeadlessFallback(row) : null
+              });
+              if (relayRes.headlessAuthMissing) headlessAuthMissing = true;
+              const didAccept =
+                relayRes.ok ||
+                relayRes.timedOut ||
+                (relayRes.dispatchedVia === "headless" && relayRes.started !== false);
+              if (!didAccept) {
+                break;
+              }
+              dispatchIds.push(dispatch.dispatchId);
+              dispatchedThreads.push(sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(row.thread_id));
+            } catch {
+              break;
+            }
+          }
+          broadcastSnapshot(ws);
+          return sendJson(res, 200, {
+            startedCount: dispatchedThreads.length,
+            dispatchCount: dispatchIds.length,
+            dispatchIds,
+            threads: dispatchedThreads,
+            dispatchedVia: "swarm",
+            headlessAuthMissing
+          });
+        }
+
         const startedList = [];
         let headlessAuthMissing = false;
-        for (const row of suggested) {
+        for (const row of rows) {
           try {
             let st = db.registerThread(ws, { threadId: row.thread_id, role: row.role, workspaceMode: row.workspace_mode });
             if (body.launchHeadless) {
@@ -1063,41 +1724,22 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 200, { startedCount: startedList.length, threads: startedList, headlessAuthMissing });
       }
 
-      if (act === "start_selected") {
-        const ids = Array.isArray(body.threadIds) ? body.threadIds.map(String) : [];
-        const startedList = [];
-        let headlessAuthMissing = false;
-        for (const tid of ids) {
-          const row = sql.prepare("SELECT * FROM threads WHERE thread_id = ? AND ui_bucket = 'suggested'").get(tid);
-          if (!row) continue;
-          try {
-            let st = db.registerThread(ws, { threadId: row.thread_id, role: row.role, workspaceMode: row.workspace_mode });
-            if (body.launchHeadless) {
-              const sp = startHeadlessWorkerOrHandleAuth(ws, {
-                threadId: row.thread_id,
-                mode: db.isMutatingRole(row.role) ? "write" : "readonly",
-                cwd: row.worktree_path || ws,
-                prompt: `${row.title}\n\n${row.description}`
-              });
-              if (sp.headlessAuthMissing) {
-                headlessAuthMissing = true;
-                st = sp.thread;
-              }
-            }
-            startedList.push(st);
-          } catch {
-            break;
-          }
-        }
-        broadcastSnapshot(ws);
-        return sendJson(res, 200, { startedCount: startedList.length, threads: startedList, headlessAuthMissing });
-      }
+      const failOpenThreadDispatches = (tid, reason) => {
+        if (!tid) return;
+        sql.prepare(`
+          UPDATE hub_dispatches
+          SET status = 'failed', reserved_slots = 0, error_message = COALESCE(error_message, ?)
+          WHERE thread_id = ? AND status IN ('pending', 'claimed')
+        `).run(reason, String(tid));
+      };
 
       if (act === "dismiss") {
+        failOpenThreadDispatches(body.threadId, "Thread dismissed.");
         const updated = db.updateThreadState(ws, {
           threadId: body.threadId,
           uiBucket: "resolved",
-          summary: "Dismissed from Suggested queue."
+          summary: "Dismissed from Suggested queue.",
+          activeDispatchId: null
         });
         broadcastSnapshot(ws);
         return sendJson(res, 200, { thread: updated });
@@ -1105,23 +1747,109 @@ const server = http.createServer(async (req, res) => {
 
       if (act === "cancel_headless" || act === "interrupt") {
         const cancelled = cancelSingleHeadlessTask(ws, body.threadId);
-        const updated =
-          act === "interrupt"
-            ? db.updateThreadState(ws, {
-                threadId: body.threadId,
-                uiBucket: "idle",
-                summary: body.summary || "Interrupted by user."
-              })
-            : sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(body.threadId);
+        let updated;
+        if (act === "interrupt") {
+          failOpenThreadDispatches(body.threadId, "Thread interrupted by user.");
+          updated = db.updateThreadState(ws, {
+            threadId: body.threadId,
+            uiBucket: "idle",
+            summary: body.summary || "Interrupted by user.",
+            activeDispatchId: null
+          });
+        } else {
+          updated = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(body.threadId);
+        }
         broadcastSnapshot(ws);
         return sendJson(res, 200, { cancelled, thread: updated });
       }
+
+      const getEffectiveSwarmState = (row) => {
+        if (row.swarm_state === "killed") return "killed";
+        const activeSwarm = db.readActiveSwarmState(ws);
+        const liveMember = row.swarm_member_name ? activeSwarm?.members?.[row.swarm_member_name] : null;
+        return liveMember ? liveMember.status : (row.swarm_state || "working");
+      };
+
+      const getOriginMismatchError = (row) => {
+        if (
+          row.swarm_origin_coordinator_id &&
+          cfg?.coordinatorConversationId &&
+          row.swarm_origin_coordinator_id !== cfg.coordinatorConversationId
+        ) {
+          return `Swarm worker '@${row.swarm_member_name}' belongs to rolled-over Coordinator '${row.swarm_origin_coordinator_id}', not active Coordinator '${cfg.coordinatorConversationId}'.`;
+        }
+        return null;
+      };
 
       if (act === "steer") {
         const row = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(body.threadId);
         if (!row) return sendJson(res, 404, { error: "Thread not found" });
         const msg = String(body.message || "").trim();
         if (!msg) return sendJson(res, 400, { error: "Steering message cannot be empty." });
+
+        if (row.swarm_member_name && getEffectiveSwarmState(row) === "killed") {
+          return sendJson(res, 409, { error: `Cannot steer killed Swarm worker '@${row.swarm_member_name}'.` });
+        }
+        const isSwarmSteer = Boolean(
+          row.swarm_member_name &&
+            row.swarm_state !== "killed" &&
+            (row.execution_backend === "swarm" || cfg?.coordinatorConversationId)
+        );
+        if (isSwarmSteer && body.launchViaSwarm !== false) {
+          if (!cfg?.coordinatorConversationId) {
+            return sendJson(res, 409, { error: "No Swarm Coordinator bound to steer this worker." });
+          }
+          const originErr = getOriginMismatchError(row);
+          if (originErr) {
+            return sendJson(res, 409, { error: originErr });
+          }
+          const currentHead = db.getSwarmBoardHeadSync(ws, row);
+          const dispatch = db.createHubDispatch(ws, {
+            threadId: row.thread_id,
+            action: "steer",
+            targetMemberName: row.swarm_member_name,
+            payload: { message: msg },
+            baselineHeadSeq: currentHead,
+            reservedSlots: 0
+          });
+          // Advances swarm_handled_seq to currentHead & sets active_dispatch_id while leaving swarm_state untouched
+          let updated = db.updateThreadState(ws, {
+            threadId: row.thread_id,
+            uiBucket: "working",
+            clearBlockingQuestion: true,
+            summary: `Steered: ${msg.slice(0, 180)}`,
+            telemetryEvent: { type: "steer", text: msg.slice(0, 300) },
+            activeDispatchId: dispatch.dispatchId
+          });
+          const relayRes = await relayToCoordinator(ws, dispatch, {
+            fallbackHeadless: body.launchHeadlessFallback
+              ? () =>
+                  startHeadlessWorkerOrHandleAuth(ws, {
+                    threadId: row.thread_id,
+                    mode: db.isMutatingRole(row.role) ? "write" : "readonly",
+                    cwd: row.worktree_path || ws,
+                    prompt: `${row.title}\n\nOriginal Brief:\n${row.description}\n\nUser Reply / Steering Instruction:\n${msg}`
+                  })
+              : null
+          });
+          updated = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(row.thread_id);
+          broadcastSnapshot(ws);
+          if (!relayRes.ok && !relayRes.timedOut && relayRes.dispatchedVia !== "headless") {
+            return sendJson(res, 502, {
+              error: relayRes.error || "Swarm steer relay failed.",
+              thread: updated,
+              dispatchId: dispatch.dispatchId,
+              spawnFailed: Boolean(relayRes.spawnFailed)
+            });
+          }
+          return sendJson(res, 200, {
+            thread: updated,
+            dispatchId: dispatch.dispatchId,
+            dispatchedVia: relayRes.dispatchedVia,
+            headlessAuthMissing: Boolean(relayRes.headlessAuthMissing),
+            relayTimedOut: Boolean(relayRes.timedOut)
+          });
+        }
 
         let updated = db.updateThreadState(ws, {
           threadId: row.thread_id,
@@ -1146,6 +1874,103 @@ const server = http.createServer(async (req, res) => {
         }
         broadcastSnapshot(ws);
         return sendJson(res, 200, { thread: updated, headlessAuthMissing });
+      }
+
+      if (act === "switch_model") {
+        const row = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(body.threadId);
+        if (!row) return sendJson(res, 404, { error: "Thread not found" });
+        if (!row.swarm_member_name) {
+          return sendJson(res, 400, { error: "Thread is not bound to a Swarm worker." });
+        }
+        if (!cfg?.coordinatorConversationId) {
+          return sendJson(res, 409, { error: "No active Swarm Coordinator bound." });
+        }
+        const originErr = getOriginMismatchError(row);
+        if (originErr) {
+          return sendJson(res, 409, { error: originErr });
+        }
+        const rawModel = String(body.model || "").trim();
+        const resolvedModel = rawModel === "inherit" ? null : db.resolveSwarmModel(rawModel);
+        if (!rawModel || (rawModel !== "inherit" && !resolvedModel)) {
+          return sendJson(res, 400, { error: `Invalid Swarm model '${rawModel}'.` });
+        }
+        const liveSwarmState = getEffectiveSwarmState(row);
+        if (liveSwarmState !== "waiting") {
+          return sendJson(res, 409, {
+            error: `Cannot switch model while Swarm worker '@${row.swarm_member_name}' is '${liveSwarmState}'. Worker must be waiting.`
+          });
+        }
+
+        const dispatch = db.createHubDispatch(ws, {
+          threadId: row.thread_id,
+          action: "switch_model",
+          targetMemberName: row.swarm_member_name,
+          payload: { model: rawModel, resolvedModel },
+          baselineHeadSeq: db.getSwarmBoardHeadSync(ws, row),
+          reservedSlots: 0
+        });
+        const relayRes = await relayToCoordinator(ws, dispatch);
+        const updated = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(row.thread_id);
+        broadcastSnapshot(ws);
+        if (!relayRes.ok && !relayRes.timedOut) {
+          return sendJson(res, 502, {
+            error: relayRes.error || "Failed to relay switch_model dispatch.",
+            thread: updated,
+            dispatchId: dispatch.dispatchId,
+            spawnFailed: Boolean(relayRes.spawnFailed)
+          });
+        }
+        return sendJson(res, 200, {
+          thread: updated,
+          dispatchId: dispatch.dispatchId,
+          dispatchedVia: "swarm",
+          relayTimedOut: Boolean(relayRes.timedOut)
+        });
+      }
+
+      if (act === "kill_swarm_worker") {
+        const row = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(body.threadId);
+        if (!row) return sendJson(res, 404, { error: "Thread not found" });
+        if (!row.swarm_member_name) {
+          return sendJson(res, 400, { error: "Thread is not bound to a Swarm worker." });
+        }
+        if (!cfg?.coordinatorConversationId) {
+          return sendJson(res, 409, { error: "No active Swarm Coordinator bound." });
+        }
+        const killOriginErr = getOriginMismatchError(row);
+        if (killOriginErr) {
+          return sendJson(res, 409, { error: killOriginErr });
+        }
+        const liveSwarmState = getEffectiveSwarmState(row);
+        if (liveSwarmState === "killed") {
+          return sendJson(res, 409, { error: `Swarm worker '@${row.swarm_member_name}' is already killed.` });
+        }
+
+        const dispatch = db.createHubDispatch(ws, {
+          threadId: row.thread_id,
+          action: "kill",
+          targetMemberName: row.swarm_member_name,
+          payload: { memberName: row.swarm_member_name },
+          baselineHeadSeq: db.getSwarmBoardHeadSync(ws, row),
+          reservedSlots: 0
+        });
+        const relayRes = await relayToCoordinator(ws, dispatch);
+        const updated = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(row.thread_id);
+        broadcastSnapshot(ws);
+        if (!relayRes.ok && !relayRes.timedOut) {
+          return sendJson(res, 502, {
+            error: relayRes.error || "Failed to relay kill dispatch.",
+            thread: updated,
+            dispatchId: dispatch.dispatchId,
+            spawnFailed: Boolean(relayRes.spawnFailed)
+          });
+        }
+        return sendJson(res, 200, {
+          thread: updated,
+          dispatchId: dispatch.dispatchId,
+          dispatchedVia: "swarm",
+          relayTimedOut: Boolean(relayRes.timedOut)
+        });
       }
 
       if (act === "update") {
@@ -1304,10 +2129,79 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/routines/run-now") {
+      const cfg = db.loadProjectConfig(ws);
+      if (cfg && cfg.status !== "active") {
+        return sendJson(res, 409, {
+          error: `Project '${cfg.name}' is ${cfg.status.toUpperCase()}. Resume it before running routines.`
+        });
+      }
       const sql = db.openProjectDb(ws);
       const r = sql.prepare("SELECT * FROM scheduled_routines WHERE routine_id = ?").get(body.routineId);
       if (!r) return sendJson(res, 404, { error: "Routine not found" });
       const normRole = db.normalizeRole(r.target_role || "explorer");
+      const useSwarm = Boolean(
+        cfg?.coordinatorConversationId &&
+          cfg?.orchestration?.executionEngine !== "headless" &&
+          !body.launchHeadless &&
+          body.launchViaSwarm !== false
+      );
+
+      if (useSwarm) {
+        const thread = db.createPendingRoutineThread(ws, {
+          title: `[Routine] ${r.name}`,
+          description: r.prompt,
+          role: normRole,
+          workspaceMode: r.workspace_mode || "share",
+          coordinatorConversationId: cfg.coordinatorConversationId
+        });
+        const dispatch = db.createHubDispatch(ws, {
+          threadId: thread.thread_id,
+          action: "cron",
+          payload: {
+            role: normRole,
+            title: `[Routine] ${r.name}`,
+            prompt: r.prompt,
+            workspaceMode: r.workspace_mode || "share"
+          },
+          baselineHeadSeq: db.getSwarmBoardHeadSync(ws, thread),
+          reservedSlots: 1
+        });
+        sql.prepare("UPDATE scheduled_routines SET last_run_at = ?, last_thread_id = ? WHERE routine_id = ?")
+          .run(db.nowIso(), thread.thread_id, r.routine_id);
+        const relayRes = await relayToCoordinator(ws, dispatch, {
+          fallbackHeadless: () =>
+            startHeadlessWorkerOrHandleAuth(ws, {
+              threadId: thread.thread_id,
+              mode: db.isMutatingRole(normRole) ? "write" : "readonly",
+              cwd: ws,
+              prompt: r.prompt
+            })
+        });
+        if (relayRes.headlessAuthMissing || relayRes.started === false) {
+          const errMsg = String(relayRes.error || `Dispatch failed (${relayRes.reason || "not_started"}).`).slice(0, 500);
+          sql.prepare(`
+            UPDATE scheduled_routines
+            SET last_error = ?, last_error_at = ?,
+                consecutive_failures = COALESCE(consecutive_failures, 0) + 1
+            WHERE routine_id = ?
+          `).run(errMsg, db.nowIso(), r.routine_id);
+        } else {
+          sql.prepare(`
+            UPDATE scheduled_routines
+            SET last_error = NULL, last_error_at = NULL, consecutive_failures = 0
+            WHERE routine_id = ?
+          `).run(r.routine_id);
+        }
+        broadcastSnapshot(ws);
+        return sendJson(res, 200, {
+          thread: sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(thread.thread_id),
+          dispatchId: dispatch.dispatchId,
+          dispatchedVia: relayRes.dispatchedVia,
+          headlessAuthMissing: Boolean(relayRes.headlessAuthMissing),
+          relayTimedOut: Boolean(relayRes.timedOut)
+        });
+      }
+
       const thread = db.registerThread(ws, {
         title: `[Routine] ${r.name}`,
         description: r.prompt,
