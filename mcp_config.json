@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agy_projects_mcp": {
+      "command": "node",
+      "args": ["server/mcp_server.cjs"]
+    }
+  }
+}

@@ -1,0 +1,4313 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>AGY Project Hub</title>
+  <script src="/preload.js"></script>
+  <style>
+    @property --fade-start {
+      syntax: "<length>";
+      inherits: false;
+      initial-value: 0px;
+    }
+    @property --fade-end {
+      syntax: "<length>";
+      inherits: false;
+      initial-value: 0px;
+    }
+
+    :root {
+      --bg-light: #f6f8fa;
+      --bg-dark: #0d1117;
+      --surface-light: #ffffff;
+      --surface-dark: #161b22;
+      --surface-2-light: #f0f3f6;
+      --surface-2-dark: #21262d;
+      --border-light: #d0d7de;
+      --border-dark: #30363d;
+      --input-border-light: #6e7781;
+      --input-border-dark: #6e7681;
+      --text-light: #1f2328;
+      --text-dark: #e6edf3;
+      --muted-light: #59636e;
+      --muted-dark: #8b949e;
+      --brand-light: #0550ae;
+      --brand-dark: #58a6ff;
+      --brand-fg-light: #ffffff;
+      --brand-fg-dark: #0d1117;
+      --ok-light: #1a7f37;
+      --ok-dark: #3fb950;
+      --warn-light: #9a6700;
+      --warn-dark: #d29922;
+      --err-light: #cf222e;
+      --err-dark: #f85149;
+      --ph-tab-fg-light: #3b434b;
+      --ph-tab-fg-dark: #a2abb6;
+
+      --ph-bg: var(--bg-light);
+      --ph-surface: var(--surface-light);
+      --ph-surface-2: var(--surface-2-light);
+      --ph-border: var(--border-light);
+      --ph-input-border: var(--input-border-light);
+      --ph-text: var(--text-light);
+      --ph-muted: var(--muted-light);
+      --ph-accent: var(--brand-light);
+      --ph-accent-fg: var(--brand-fg-light);
+      --ph-ok: var(--ok-light);
+      --ph-warn: var(--warn-light);
+      --ph-err: var(--err-light);
+      --ph-tab-fg: var(--ph-tab-fg-light);
+      --scrollbar-thumb: #8c959f;
+      --scrollbar-track: #eaeef2;
+
+      @media (prefers-color-scheme: dark) {
+        --ph-bg: var(--bg-dark);
+        --ph-surface: var(--surface-dark);
+        --ph-surface-2: var(--surface-2-dark);
+        --ph-border: var(--border-dark);
+        --ph-input-border: var(--input-border-dark);
+        --ph-text: var(--text-dark);
+        --ph-muted: var(--muted-dark);
+        --ph-accent: var(--brand-dark);
+        --ph-accent-fg: var(--brand-fg-dark);
+        --ph-ok: var(--ok-dark);
+        --ph-warn: var(--warn-dark);
+        --ph-err: var(--err-dark);
+        --ph-tab-fg: var(--ph-tab-fg-dark);
+        --scrollbar-thumb: #484f58;
+        --scrollbar-track: #161b22;
+      }
+
+      @supports (color: light-dark(white, black)) {
+        --ph-bg: light-dark(var(--bg-light), var(--bg-dark));
+        --ph-surface: light-dark(var(--surface-light), var(--surface-dark));
+        --ph-surface-2: light-dark(var(--surface-2-light), var(--surface-2-dark));
+        --ph-border: light-dark(var(--border-light), var(--border-dark));
+        --ph-input-border: light-dark(var(--input-border-light), var(--input-border-dark));
+        --ph-text: light-dark(var(--text-light), var(--text-dark));
+        --ph-muted: light-dark(var(--muted-light), var(--muted-dark));
+        --ph-accent: light-dark(var(--brand-light), var(--brand-dark));
+        --ph-accent-fg: light-dark(var(--brand-fg-light), var(--brand-fg-dark));
+        --ph-ok: light-dark(var(--ok-light), var(--ok-dark));
+        --ph-warn: light-dark(var(--warn-light), var(--warn-dark));
+        --ph-err: light-dark(var(--err-light), var(--err-dark));
+        --ph-tab-fg: light-dark(var(--ph-tab-fg-light), var(--ph-tab-fg-dark));
+        --scrollbar-thumb: light-dark(#8c959f, #484f58);
+        --scrollbar-track: light-dark(#eaeef2, #161b22);
+      }
+
+      color-scheme: light dark;
+      accent-color: var(--ph-accent);
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    @supports not (scrollbar-color: auto) {
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        border-radius: 5px;
+      }
+      ::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+    }
+
+    @supports not (accent-color: var(--ph-accent)) {
+      input[type="checkbox"],
+      input[type="radio"] {
+        border: 1.5px solid var(--ph-accent);
+      }
+    }
+
+    /* Native <details>/<summary> Accordion */
+    details.bucket-group {
+      border: 1px solid var(--ph-border);
+      border-radius: 8px;
+      background: var(--ph-surface);
+      margin-block-end: 8px;
+    }
+    details.bucket-group > summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 0.6ch;
+      padding: 10px 12px;
+      font-weight: 600;
+      cursor: pointer;
+      user-select: none;
+    }
+    details.bucket-group > summary::-webkit-details-marker {
+      display: none;
+    }
+    details.bucket-group > summary::before {
+      content: "";
+      inline-size: 0.85em;
+      block-size: 0.85em;
+      flex-shrink: 0;
+      background-color: currentColor;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='black' d='M3.2 5.2L8 10l4.8-4.8 1.1 1.1L8 12.2 2.1 6.3z'/%3E%3C/svg%3E") no-repeat center / contain;
+      rotate: -90deg;
+    }
+    details.bucket-group > summary:dir(rtl)::before {
+      rotate: 90deg;
+    }
+    details.bucket-group[open] > summary::before {
+      rotate: 0deg;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      details.bucket-group > summary::before {
+        transition: rotate 0.2s;
+      }
+    }
+    details.bucket-group::details-content {
+      interpolate-size: allow-keywords;
+      overflow: clip;
+      contain: layout;
+    }
+    details.bucket-group:not([open])::details-content {
+      block-size: 0;
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      details.bucket-group::details-content {
+        transition: block-size 0.22s ease-in-out, content-visibility 0.22s ease-in-out, display 0.22s ease-in-out;
+        transition-behavior: allow-discrete;
+      }
+    }
+    .bucket-body {
+      padding: 0 12px 12px;
+    }
+
+    /* Styled Determinate <progress> Bar (separate vendor pseudo-element rules) */
+    progress {
+      appearance: none;
+      border: 0 solid;
+      overflow: clip;
+      inline-size: 100%;
+      block-size: 10px;
+      --progress-bar-radius: 999px;
+      border-radius: var(--progress-bar-radius);
+      background: var(--ph-surface-2);
+      box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.12);
+    }
+    progress::-webkit-progress-bar {
+      background: transparent;
+    }
+    progress::-webkit-progress-value {
+      background: var(--progress-bar-fill, var(--ph-accent));
+      border-radius: var(--progress-bar-radius);
+      transition: inline-size 0.25s;
+    }
+    progress::-moz-progress-bar {
+      background: var(--progress-bar-fill, var(--ph-accent));
+      border-radius: var(--progress-bar-radius);
+      transition: inline-size 0.25s;
+    }
+
+    * { box-sizing: border-box; }
+
+    .visually-hidden {
+      position: absolute;
+      clip-path: inset(50%);
+      overflow: hidden;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      border: 0;
+      white-space: nowrap;
+    }
+
+    body {
+      margin: 0;
+      background: var(--ph-bg) !important;
+      color: var(--ph-text) !important;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .topbar {
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--ph-surface);
+      border-block-end: 1px solid var(--ph-border);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .topbar-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+      flex-wrap: nowrap;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+      flex-wrap: nowrap;
+    }
+
+    select, input[type="text"], input[type="search"], input[type="number"], textarea {
+      background: var(--ph-surface);
+      color: var(--ph-text);
+      border: 1px solid var(--ph-input-border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: inherit;
+    }
+
+    select:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    button:focus-visible,
+    .dropzone:focus-visible {
+      outline: 2px solid var(--ph-accent);
+      outline-offset: 2px;
+    }
+
+    input:user-invalid,
+    textarea:user-invalid,
+    select:user-invalid,
+    [aria-invalid="true"] {
+      border-color: var(--ph-err);
+    }
+
+    textarea {
+      width: 100%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      resize: vertical;
+    }
+
+    button {
+      font: inherit;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid var(--ph-border);
+      background: var(--ph-surface-2);
+      color: var(--ph-text);
+      padding: 5px 10px;
+      cursor: pointer;
+    }
+    button:hover:not(:disabled) { filter: brightness(0.96); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button.primary {
+      background: var(--ph-accent);
+      color: var(--ph-accent-fg);
+      border-color: transparent;
+    }
+    button.danger {
+      color: var(--ph-err);
+      border-color: var(--ph-err);
+      background: transparent;
+    }
+    button.small {
+      padding: 3px 7px;
+      font-size: 11.5px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--ph-border);
+      background: var(--ph-surface-2);
+    }
+    .badge.ok { color: var(--ph-ok); border-color: var(--ph-ok); }
+    .badge.warn { color: var(--ph-warn); border-color: var(--ph-warn); }
+    .badge.err { color: var(--ph-err); border-color: var(--ph-err); }
+
+    .live-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ph-ok);
+      flex-shrink: 0;
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ph-ok) 55%, transparent);
+      animation: ph-pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes ph-pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--ph-ok) 55%, transparent); }
+      50% { opacity: 0.45; box-shadow: 0 0 0 4px transparent; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .live-dot { animation: none; }
+    }
+
+    /* Single-row scrollable tablist with scroll-driven edge fades */
+    .tablist {
+      display: flex;
+      overflow-x: auto;
+      scrollbar-width: none;
+      scroll-snap-type: inline proximity;
+      --fade-size: 2rem;
+      --fade-dir: right;
+      --fade-start-pos: 0;
+      --fade-end-pos: 100%;
+      scroll-padding-inline: var(--fade-size);
+      background: var(--ph-surface);
+      border-block-end: 1px solid var(--ph-border);
+      padding-inline: 10px;
+      mask:
+        linear-gradient(black, black) no-clip subtract,
+        linear-gradient(to var(--fade-dir), black, transparent) var(--fade-start-pos) 0 / var(--fade-start) 100% no-repeat no-clip,
+        linear-gradient(to var(--fade-dir), transparent, black) var(--fade-end-pos) 0 / var(--fade-end) 100% no-repeat no-clip;
+      animation: reveal-fade-start linear both, hide-fade-end linear both;
+      animation-timeline: scroll(self inline);
+      animation-range: 0 var(--fade-size), calc(100% - var(--fade-size)) 100%;
+    }
+    .tablist:dir(rtl) {
+      --fade-dir: left;
+      --fade-start-pos: 100%;
+      --fade-end-pos: 0;
+    }
+    .tablist.more-start { --fade-start: var(--fade-size); }
+    .tablist.more-end { --fade-end: var(--fade-size); }
+    .tablist::-webkit-scrollbar { display: none; }
+
+    @keyframes reveal-fade-start {
+      to { --fade-start: var(--fade-size); }
+    }
+    @keyframes hide-fade-end {
+      from { --fade-end: var(--fade-size); }
+    }
+
+    .tablist > button {
+      flex: none;
+      scroll-snap-align: start;
+      position: relative;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+      color: var(--ph-tab-fg);
+      padding: 10px 12px;
+      font-weight: 600;
+    }
+    .tablist > button:hover {
+      color: var(--ph-text);
+      background: var(--ph-surface-2);
+    }
+
+    .tablist > button[aria-selected="true"] {
+      color: var(--ph-accent);
+    }
+    .tablist > button[aria-selected="true"]::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0;
+      border-block-end: 3px solid var(--ph-accent);
+    }
+
+    /* Tab panels: zero padding/border/margin/bg on [role="tabpanel"] itself so hidden="until-found" collapses cleanly and never intercepts clicks */
+    .panels-grid {
+      display: block;
+    }
+    [role="tabpanel"] {
+      padding: 0;
+      margin: 0;
+      border: 0;
+      background: none;
+    }
+    [role="tabpanel"][hidden] {
+      pointer-events: none;
+    }
+    .panel-inner {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--ph-surface);
+      border: 1px solid var(--ph-border);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-block-end: 8px;
+    }
+    .card-title {
+      margin: 0;
+      font-size: 13.5px;
+      font-weight: 600;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+      gap: 8px;
+    }
+    .stat-box {
+      background: var(--ph-surface);
+      border: 1px solid var(--ph-border);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .stat-val {
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .stat-lbl {
+      font-size: 11px;
+      color: var(--ph-muted);
+    }
+
+    .thread-item, .pr-item, .lib-item {
+      border: 1px solid var(--ph-border);
+      border-radius: 7px;
+      padding: 10px;
+      background: var(--ph-surface);
+      margin-block-end: 8px;
+    }
+    .row-between {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .muted { color: var(--ph-muted); font-size: 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+
+    .dropzone {
+      border: 2px dashed var(--ph-border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      background: var(--ph-surface-2);
+      cursor: pointer;
+    }
+    .dropzone.dragover {
+      border-color: var(--ph-accent);
+    }
+
+    .toast {
+      position: fixed;
+      inset: auto 12px 12px auto;
+      background: var(--ph-surface);
+      color: var(--ph-text);
+      border: 1px solid var(--ph-accent);
+      border-radius: 8px;
+      padding: 8px 12px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+      z-index: 90;
+      max-width: 340px;
+    }
+    .toast[hidden] { display: none; }
+
+    /* Native modal <dialog> rules */
+    dialog {
+      border: 1px solid var(--ph-border);
+      border-radius: 10px;
+      background: var(--ph-surface);
+      color: var(--ph-text);
+      padding: 0;
+      max-width: min(560px, 92vw);
+      width: 100%;
+    }
+    dialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+    dialog:modal {
+      overscroll-behavior: contain;
+    }
+    dialog::backdrop {
+      background: rgba(0, 0, 0, 0.48);
+      overflow: hidden;
+      overscroll-behavior: contain;
+    }
+    .dialog-body {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      max-height: 80vh;
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-block-end: 8px;
+    }
+    .field:last-child {
+      margin-block-end: 0;
+    }
+    .field > label {
+      font-weight: 600;
+      font-size: 12px;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-block-end: 8px;
+    }
+    pre.code-preview {
+      background: var(--ph-surface-2);
+      border: 1px solid var(--ph-border);
+      border-radius: 6px;
+      padding: 10px;
+      overflow: auto;
+      max-height: 300px;
+      font-size: 11.5px;
+      white-space: pre-wrap;
+      margin: 0;
+    }
+
+    .context-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 8px;
+    }
+    button.context-card {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      text-align: left;
+      gap: 3px;
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--ph-border);
+      border-radius: 8px;
+      background: var(--ph-surface);
+      font: inherit;
+      color: var(--ph-text);
+    }
+    button.context-card:hover:not(:disabled) {
+      border-color: var(--ph-accent);
+      background: var(--ph-surface);
+      filter: none;
+    }
+    .context-card-kicker {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--ph-muted);
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+    }
+    .context-card-main {
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--ph-text);
+    }
+    .context-card-sub {
+      font-size: 11.5px;
+      color: var(--ph-muted);
+      line-height: 1.35;
+    }
+
+    .callout-note {
+      border-inline-start: 3px solid var(--ph-warn);
+      padding: 4px 8px;
+      background: var(--ph-surface-2);
+      border-radius: 4px;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+    .callout-note.err {
+      border-inline-start-color: var(--ph-err);
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-left">
+      <h1 class="visually-hidden">Project Hub</h1>
+      <select id="project-switcher" name="activeProject" aria-label="Active project" style="max-width:min(230px,50vw);font-weight:600;text-overflow:ellipsis"><option value="">Loading projects…</option></select>
+      <button type="button" id="btn-star" class="small" aria-label="Star or unstar project" title="Pin to top of project list">★</button>
+      <span id="status-badge" class="badge">No Project</span>
+    </div>
+    <div class="topbar-right">
+      <button type="button" id="btn-open-coordinator" class="small" disabled>Open Chat</button>
+      <button type="button" id="btn-new-project" class="primary small">+ New</button>
+    </div>
+  </header>
+
+  <main class="tabs-root">
+    <div class="tablist" id="main-tablist" focusgroup="tablist nomemory" aria-label="Project Hub Views">
+      <button type="button" id="tab-overview" aria-selected="true" focusgroupstart>Overview</button>
+      <button type="button" id="tab-threads">Threads <span id="cnt-threads" class="muted"></span></button>
+      <button type="button" id="tab-library">Library <span id="cnt-library" class="muted"></span></button>
+      <button type="button" id="tab-memory">Memory</button>
+      <button type="button" id="tab-prs">Pull Requests <span id="cnt-prs" class="muted"></span></button>
+      <button type="button" id="tab-settings">Settings</button>
+    </div>
+
+    <div class="panels-grid">
+      <!-- 1. OVERVIEW -->
+      <div role="tabpanel" id="panel-overview" aria-labelledby="tab-overview" tabindex="0">
+        <div class="panel-inner" id="overview-content">
+          <div id="overview-welcome-card"></div>
+          <div id="overview-dashboard" hidden>
+            <div id="overview-banners"></div>
+            <div class="card">
+              <div class="card-header">
+                <div style="min-width:0">
+                  <h2 class="card-title" id="ov-project-name" style="font-size:15px">Project</h2>
+                  <div id="ov-ws-path" class="muted mono" style="margin-top:2px;overflow-wrap:anywhere"></div>
+                </div>
+                <div style="display:flex;gap:6px;flex-shrink:0">
+                  <button type="button" id="btn-pause-resume" class="small">Pause</button>
+                  <button type="button" id="btn-rollover-coordinator" class="small" disabled title="Archive current Coordinator chat and start a fresh session">New Session</button>
+                </div>
+              </div>
+              <form id="form-inline-goal" action="#" method="post" aria-labelledby="ov-goal-label">
+                <label for="ov-goal-input" id="ov-goal-label" class="muted" style="font-size:11.5px;font-weight:600;display:block;margin-bottom:4px">Goal</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <input type="text" id="ov-goal-input" name="goal" placeholder="Add a 1-sentence goal to keep every task aligned..." style="flex:1;min-width:0">
+                  <button type="submit" id="btn-save-inline-goal" class="primary small" hidden>Save</button>
+                </div>
+              </form>
+            </div>
+            <div id="overview-context-grid" class="context-grid" role="group" aria-label="Project context summary" style="margin-top:10px"></div>
+            <section class="accordion" id="overview-buckets-accordion" aria-labelledby="overview-buckets-heading" style="margin-top:12px">
+              <div id="overview-buckets-header" class="row-between" style="margin-bottom:8px">
+                <h2 id="overview-buckets-heading" class="card-title">Tasks &amp; Workstreams</h2>
+                <button type="button" id="btn-ov-new-task" class="small">+ New Task</button>
+              </div>
+            </section>
+            <div id="overview-completed-coordinators" style="margin-top:12px"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. THREADS -->
+      <div role="tabpanel" id="panel-threads" aria-labelledby="tab-threads" hidden="until-found">
+        <div class="panel-inner">
+          <div class="row-between">
+            <search aria-label="Filter worker threads">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <div style="display:flex;gap:4px;align-items:center">
+                  <label for="filter-bucket" class="muted">Bucket:</label>
+                  <select id="filter-bucket" name="bucket">
+                    <option value="all">All Active</option>
+                    <option value="suggested">Suggested</option>
+                    <option value="working">Working</option>
+                    <option value="waiting_on_you">Waiting on You</option>
+                    <option value="ready_for_review">Ready for Review</option>
+                    <option value="landing">Landing</option>
+                    <option value="idle">Idle</option>
+                    <option value="paused">Paused</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center">
+                  <label for="filter-repo" class="muted">Repo:</label>
+                  <select id="filter-repo" name="repo">
+                    <option value="all">All Repos</option>
+                  </select>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center">
+                  <label for="filter-role" class="muted">Role:</label>
+                  <select id="filter-role" name="role">
+                    <option value="all">All Roles</option>
+                    <option value="explorer">explorer</option>
+                    <option value="implementer">implementer</option>
+                    <option value="verifier">verifier</option>
+                    <option value="pr-fixer">pr-fixer</option>
+                  </select>
+                </div>
+                <div style="display:flex;gap:4px;align-items:center">
+                  <label for="filter-mode" class="muted">Mode:</label>
+                  <select id="filter-mode" name="mode">
+                    <option value="all">All Modes</option>
+                    <option value="share">share</option>
+                    <option value="branch">branch</option>
+                    <option value="inherit">inherit</option>
+                  </select>
+                </div>
+              </div>
+            </search>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="btn-start-all" class="small">▶▶ Start All Suggested</button>
+              <button type="button" id="btn-propose-thread" class="primary small">+ Propose Thread</button>
+            </div>
+          </div>
+          <div id="threads-list"></div>
+        </div>
+      </div>
+
+      <!-- 3. LIBRARY -->
+      <div role="tabpanel" id="panel-library" aria-labelledby="tab-library" hidden="until-found">
+        <div class="panel-inner">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title">Project Library &amp; Contextual Hybrid RAG</h2>
+              <span id="lib-mode-badge" class="badge">Pinned</span>
+            </div>
+            <p class="muted" id="lib-stats-line" style="margin-top:0"></p>
+            <div class="field" style="margin-top:6px">
+              <label for="lib-token-progress" id="lib-progress-label">Inline Pinning Budget</label>
+              <progress id="lib-token-progress" max="15000" value="0"></progress>
+            </div>
+            <div id="upload-dropzone" class="dropzone" tabindex="0" role="button" aria-label="Upload file or folder to Project Library">
+              Drop files or folders here, or click to ingest into <code>.agy-project/library/inputs/</code> (30 MB default / 45 MB large upload; PDF &le;100p visual+text, 101&ndash;1000p text-only)
+              <input type="file" id="file-input" name="libraryFiles" hidden multiple>
+            </div>
+            <div class="checkbox-row" style="margin-top:8px;margin-bottom:4px">
+              <input type="checkbox" id="chk-allow-large-local" name="allowLargeLocal">
+              <label for="chk-allow-large-local" class="muted">Allow large upload / local file ingest (up to 45 MB upload / 200 MB local path)</label>
+            </div>
+            <form id="form-ingest-path" action="#" method="post" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px">
+              <label for="lib-local-path" class="muted">Local Path:</label>
+              <input type="text" id="lib-local-path" name="sourcePath" required autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="/absolute/path/to/local/file.pdf" style="flex:1;min-width:200px">
+              <button type="submit" id="btn-ingest-path" class="small">Ingest Path</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title" id="rag-search-heading">Hybrid Retrieval Tester (RRF: Dense Embeddings + FTS5 BM25)</h3>
+              <button type="button" id="btn-reindex" class="small">Re-index Library</button>
+            </div>
+            <search>
+              <form id="form-rag-search" action="#" method="get" aria-labelledby="rag-search-heading" style="display:flex;gap:6px;align-items:center">
+                <label for="rag-query" class="muted">Query:</label>
+                <input type="search" id="rag-query" name="query" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Search specs, docs, symbols, or thread deliverables..." style="flex:1">
+                <button type="submit" id="btn-rag-search" class="primary">Search</button>
+              </form>
+            </search>
+            <div id="rag-results" style="margin-top:10px"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Ingested Assets (Inputs &amp; Thread Outputs)</h3>
+              <div style="display:flex;gap:6px;align-items:center">
+                <label for="filter-lib-category" class="muted">Category:</label>
+                <select id="filter-lib-category" name="libCategory">
+                  <option value="all">All</option>
+                  <option value="input">Inputs</option>
+                  <option value="output">Outputs</option>
+                </select>
+              </div>
+            </div>
+            <div id="library-items-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. MEMORY -->
+      <div role="tabpanel" id="panel-memory" aria-labelledby="tab-memory" hidden="until-found">
+        <div class="panel-inner">
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title"><label for="mem-instructions-editor">Standing Project Instructions (&le;16,000 chars)</label></h2>
+              <span id="mem-inst-counter" class="badge">0 / 16,000</span>
+            </div>
+            <textarea id="mem-instructions-editor" name="memInstructions" rows="4" placeholder="Always run unit tests before opening a PR..."></textarea>
+            <div id="mem-inst-lint-hint" class="muted" style="margin-top:4px;font-size:11.5px"></div>
+            <div class="row-between" style="margin-top:8px">
+              <span class="muted">Injected at Tier 1 into Coordinator &amp; every Worker Thread turn.</span>
+              <button type="button" id="btn-save-mem-instructions" class="primary small">Save Instructions</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h2 class="card-title"><label for="mem-index-editor">MEMORY.md Anchor Index (&le;200 lines / &le;16,000 chars)</label></h2>
+              <span id="mem-meter" class="badge">0 / 200 lines</span>
+            </div>
+            <textarea id="mem-index-editor" name="memoryIndex" rows="9"></textarea>
+            <div class="row-between" style="margin-top:8px">
+              <span class="muted">Injected into Coordinator &amp; Worker Threads on startup and refreshed when SHA-256 changes.</span>
+              <div style="display:flex;gap:6px">
+                <button type="button" id="btn-consolidate-mem" class="small">Consolidate &amp; Deduplicate</button>
+                <button type="button" id="btn-save-mem-index" class="primary small">Save MEMORY.md</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Topic Files (<code>.agy-project/memory/topics/*.md</code>)</h3>
+              <button type="button" id="btn-new-topic" class="primary small">+ Upsert Topic</button>
+            </div>
+            <div id="memory-topics-list"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title"><label for="acct-mem-editor">Cross-Project <code>ACCOUNT_MEMORY.md</code></label></h3>
+              <span id="acct-mem-isolation-badge" class="badge">Isolated (Off)</span>
+            </div>
+            <textarea id="acct-mem-editor" name="accountMemory" rows="5"></textarea>
+            <div class="checkbox-row" style="margin-top:8px;margin-bottom:0">
+              <input type="checkbox" id="mem-toggle-acct-mem" name="memUseAccountMemory">
+              <label for="mem-toggle-acct-mem">Use Account Memory in this project</label>
+            </div>
+            <div class="row-between" style="margin-top:8px">
+              <span class="muted">Shared personal preferences across projects only when enabled in Settings &gt; Memory &amp; Contextual RAG.</span>
+              <button type="button" id="btn-save-acct-mem" class="primary small">Save Account Memory</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. PULL REQUESTS -->
+      <div role="tabpanel" id="panel-prs" aria-labelledby="tab-prs" hidden="until-found">
+        <div class="panel-inner">
+          <div class="row-between">
+            <strong>Multi-Repo PR Tracker &amp; 60s CI Auto-Fix Watcher</strong>
+            <div style="display:flex;gap:6px">
+              <button type="button" id="btn-bind-repo" class="small">+ Bind Repo</button>
+              <button type="button" id="btn-sync-prs" class="primary small">↻ Sync via gh</button>
+            </div>
+          </div>
+          <div id="repos-list"></div>
+          <div id="prs-list"></div>
+        </div>
+      </div>
+
+      <!-- 6. SETTINGS -->
+      <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden="until-found">
+        <div class="panel-inner">
+          <form id="form-settings" action="#" method="post" aria-labelledby="settings-general-heading" style="display:flex;flex-direction:column;gap:12px">
+            <!-- 6.1 General & Models -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title" id="settings-general-heading">1. General &amp; Models</h3>
+                <div style="display:flex;gap:6px">
+                  <button type="button" id="btn-set-pause-resume" class="small">Pause Project</button>
+                  <button type="button" id="btn-archive-project" class="danger small">Archive Project</button>
+                </div>
+              </div>
+              <div class="field">
+                <label for="set-name">Project Name <span aria-hidden="true">*</span></label>
+                <input type="text" id="set-name" name="name" required>
+              </div>
+              <div class="field">
+                <label for="set-goal">North Star Goal (1-line summary)</label>
+                <input type="text" id="set-goal" name="goal">
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+                <div class="field">
+                  <label for="set-coordinator-model">Coordinator Model</label>
+                  <select id="set-coordinator-model" name="coordinatorModel">
+                    <option value="inherit">inherit (Host Default)</option>
+                    <option value="pro">pro</option>
+                    <option value="flash">flash</option>
+                    <option value="flash_lite">flash_lite</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-default-model">Default Worker Thread Model</label>
+                  <select id="set-default-model" name="defaultThreadModel">
+                    <option value="inherit">inherit (Coordinator Model)</option>
+                    <option value="flash">flash</option>
+                    <option value="flash_lite">flash_lite</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-ws-mode">Default Worker Workspace Mode</label>
+                  <select id="set-ws-mode" name="defaultWorkspaceMode">
+                    <option value="share">share (Isolated Working Copy)</option>
+                    <option value="branch">branch (Full Clone)</option>
+                    <option value="inherit">inherit (Shared CWD)</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field">
+                  <label for="set-role-explorer">Explorer Role Model</label>
+                  <select id="set-role-explorer" name="roleExplorerModel">
+                    <option value="inherit">inherit</option>
+                    <option value="flash">flash</option>
+                    <option value="flash_lite">flash_lite</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-role-implementer">Implementer Role Model</label>
+                  <select id="set-role-implementer" name="roleImplementerModel">
+                    <option value="inherit">inherit</option>
+                    <option value="flash">flash</option>
+                    <option value="flash_lite">flash_lite</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-role-verifier">Verifier Role Model</label>
+                  <select id="set-role-verifier" name="roleVerifierModel">
+                    <option value="inherit">inherit</option>
+                    <option value="flash">flash</option>
+                    <option value="flash_lite">flash_lite</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-role-pr-fixer">PR-Fixer Role Model</label>
+                  <select id="set-role-pr-fixer" name="rolePrFixerModel">
+                    <option value="inherit">inherit</option>
+                    <option value="flash">flash</option>
+                    <option value="flash_lite">flash_lite</option>
+                    <option value="pro">pro</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field">
+                  <label for="set-max-threads">Max Concurrent Threads</label>
+                  <input type="number" id="set-max-threads" name="maxConcurrentThreads" min="1" max="25">
+                </div>
+                <div class="field">
+                  <label for="set-max-daily">Max Spawns / Day</label>
+                  <input type="number" id="set-max-daily" name="maxNewThreadsPerDay" min="1" max="2000">
+                </div>
+                <div class="field">
+                  <label for="set-idle-days">Idle Auto-Resolve (Days)</label>
+                  <input type="number" id="set-idle-days" name="idleAutoResolveDays" min="1" max="365">
+                </div>
+              </div>
+              <div class="checkbox-row" style="margin-top:8px;margin-bottom:0">
+                <input type="checkbox" id="set-require-approval" name="requireApprovalBeforeSpawn">
+                <label for="set-require-approval">Require Coordinator planning approval before spawning write-enabled Worker Threads</label>
+              </div>
+              <div class="checkbox-row" style="margin-top:6px;margin-bottom:0">
+                <input type="checkbox" id="chk-show-archived" name="showArchived">
+                <label for="chk-show-archived">Show archived projects in project switcher</label>
+              </div>
+            </div>
+
+            <!-- 6.2 Memory & Contextual RAG -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">2. Memory &amp; Contextual RAG</h3>
+                <div style="display:flex;gap:6px">
+                  <button type="button" id="btn-set-reindex" class="small">Re-index Library</button>
+                  <button type="button" id="btn-set-consolidate-mem" class="small">Consolidate Memory</button>
+                </div>
+              </div>
+              <div class="row-between" style="margin-bottom:4px">
+                <label for="set-instructions" style="font-weight:600;font-size:12px">Standing Project Instructions (&le;16,000 chars)</label>
+                <span id="inst-counter" class="badge">0 / 16,000</span>
+              </div>
+              <textarea id="set-instructions" name="instructions" rows="5" placeholder="Coding conventions, PR rules, test commands..."></textarea>
+
+              <div class="checkbox-row" style="margin-top:8px">
+                <input type="checkbox" id="set-acct-mem" name="useAccountMemory">
+                <label for="set-acct-mem">Bridge cross-project <code>ACCOUNT_MEMORY.md</code> (off by default for strict Claude Projects isolation)</label>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="field">
+                  <label for="set-max-mem-lines">MEMORY.md Max Lines (&le;200)</label>
+                  <input type="number" id="set-max-mem-lines" name="maxIndexLines" min="20" max="200">
+                </div>
+                <div class="field">
+                  <label for="set-pin-threshold">Auto-Pin Token Threshold</label>
+                  <input type="number" id="set-pin-threshold" name="autoPinLibraryTokenThreshold" min="500" max="200000">
+                </div>
+                <div class="field">
+                  <label for="set-emb-provider">Embedding Provider</label>
+                  <select id="set-emb-provider" name="embeddingProvider">
+                    <option value="local_onnx">Local Air-Gapped ONNX (BAAI/bge-small-en-v1.5, 384d)</option>
+                    <option value="gemini_cloud">Cloud Gemini Embeddings (Opt-in)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-cloud-model">Cloud Gemini Model</label>
+                  <select id="set-cloud-model" name="cloudEmbeddingModel">
+                    <option value="gemini-embedding-2">gemini-embedding-2 (8,192 tok multimodal)</option>
+                    <option value="gemini-embedding-001">gemini-embedding-001 (2,048 tok text)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="margin-top:8px">
+                <label for="set-header-mode">Chunk Contextual Header Mode</label>
+                <select id="set-header-mode" name="contextualHeaderMode">
+                  <option value="structural_offline">Structural AST / Breadcrumb Offline (Default, Zero API Cost)</option>
+                  <option value="gemini_flash_lite">Cloud Gemini Flash-Lite LLM Context Prefix (Paid-Tier Opt-in)</option>
+                </select>
+              </div>
+              <div class="checkbox-row" style="margin-top:8px;margin-bottom:0">
+                <input type="checkbox" id="set-paid-tier" name="cloudPaidTierConfirmed">
+                <label for="set-paid-tier" class="muted">Confirm Paid-Tier <code>GEMINI_API_KEY</code> (prevents Free-Tier data logging when Cloud Gemini is selected)</label>
+              </div>
+            </div>
+
+            <!-- 6.3 Environment & Repositories -->
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title">3. Environment &amp; Repositories</h3>
+                <button type="button" id="btn-set-bind-repo" class="small">+ Bind Repo</button>
+              </div>
+              <div id="settings-repos-list" style="margin-bottom:10px"></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="field">
+                  <label for="set-sandbox-mode">Sandbox Mode</label>
+                  <select id="set-sandbox-mode" name="sandboxMode">
+                    <option value="inherit">inherit</option>
+                    <option value="enabled">enabled</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-network-policy">Network Policy</label>
+                  <select id="set-network-policy" name="networkPolicy">
+                    <option value="inherit">inherit</option>
+                    <option value="allow">allow</option>
+                    <option value="ask">ask</option>
+                    <option value="deny">deny</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field" style="margin-top:8px">
+                <label for="set-setup-cmd">Worktree Setup Command (runs once on new isolated worktree)</label>
+                <input type="text" id="set-setup-cmd" name="setupCommand" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="e.g. npm ci --prefer-offline">
+              </div>
+              <div class="field" style="margin-top:8px">
+                <label for="set-env-vars">Environment Variables (<code>KEY=VALUE</code>, one per line)</label>
+                <textarea id="set-env-vars" name="envVars" rows="3" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="NODE_ENV=test"></textarea>
+              </div>
+              <div class="field" style="margin-top:8px">
+                <label for="set-secret-refs">Secret Reference Names (comma-separated env var names; values never stored)</label>
+                <input type="text" id="set-secret-refs" name="secretRefs" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="GITHUB_TOKEN, GEMINI_API_KEY">
+              </div>
+              <div id="secret-refs-status" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px"></div>
+              <div style="margin-top:12px">
+                <button type="submit" id="btn-save-settings" class="primary">Save Project Settings</button>
+              </div>
+            </div>
+          </form>
+
+          <!-- 6.4 Plugins & Scheduled Cron Routines -->
+          <div class="card">
+            <h3 class="card-title" style="margin-bottom:8px">4. Plugins &amp; Scheduled Cron Routines</h3>
+            <div id="plugins-list" style="margin-bottom:12px"></div>
+            <div class="card-header" style="margin-top:8px">
+              <strong style="font-size:12.5px">Scheduled Cron Routines (30s Runner via Antigravity Python SDK)</strong>
+              <button type="button" id="btn-new-routine" class="small">+ Add Routine</button>
+            </div>
+            <div id="routines-list"></div>
+          </div>
+
+          <!-- 6.5 Connectors & Runtime Diagnostics -->
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">5. Connectors &amp; Runtime Diagnostics</h3>
+              <button type="button" id="btn-refresh-diagnostics" class="small">↻ Refresh Diagnostics</button>
+            </div>
+            <div id="connectors-list"></div>
+          </div>
+
+          <!-- 6.6 Sharing, RBAC & Point-in-Time Snapshots -->
+          <div class="card">
+            <h3 class="card-title" style="margin-bottom:8px">6. Sharing, RBAC &amp; Point-in-Time Snapshots</h3>
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:10px">
+              <div class="field" style="margin:0;min-width:180px">
+                <label for="set-visibility">Project Visibility</label>
+                <select id="set-visibility" name="visibility">
+                  <option value="private">Private</option>
+                  <option value="organization">Organization</option>
+                </select>
+              </div>
+              <button type="button" id="btn-save-visibility" class="small">Save Visibility</button>
+            </div>
+            <div id="members-list" style="margin-bottom:8px"></div>
+            <form id="form-add-member" action="#" method="post" aria-label="Add project member" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+              <label for="mem-principal" class="muted">Member:</label>
+              <input type="text" id="mem-principal" name="principal" required autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="username or email" style="flex:1;min-width:140px">
+              <label for="mem-role" class="muted">Role:</label>
+              <select id="mem-role" name="role">
+                <option value="editor">Can edit (editor)</option>
+                <option value="viewer">Can view (viewer)</option>
+                <option value="owner">Owner (owner)</option>
+              </select>
+              <button type="submit" id="btn-add-member" class="small">+ Add Member</button>
+            </form>
+
+            <div class="card-header">
+              <strong style="font-size:12.5px">Activity Feed &amp; Point-in-Time Snapshots</strong>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <span id="snapshots-feed-badge" class="badge">0 in Activity Feed</span>
+                <div class="checkbox-row" style="margin:0">
+                  <input type="checkbox" id="chk-feed-only" name="feedOnly">
+                  <label for="chk-feed-only" class="muted">Feed only</label>
+                </div>
+                <button type="button" id="btn-new-snapshot" class="small">+ Create Snapshot</button>
+              </div>
+            </div>
+            <div id="snapshots-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- MODAL: New Project -->
+  <dialog id="dlg-new-project" closedby="any" aria-labelledby="dlg-np-title">
+    <form action="#" method="post" class="dialog-body" id="form-new-project" aria-labelledby="dlg-np-title">
+      <h3 id="dlg-np-title" style="margin:0">Initialize AGY Project</h3>
+      <div class="field">
+        <label for="np-name">Project Name <span aria-hidden="true">*</span></label>
+        <input type="text" id="np-name" name="name" required autofocus placeholder="e.g. Payments Refactor">
+      </div>
+      <div class="field">
+        <label for="np-ws">Absolute Workspace Path <span aria-hidden="true">*</span></label>
+        <input type="text" id="np-ws" name="workspacePath" required autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="/Users/username/code/my-repo">
+      </div>
+      <div class="field">
+        <label for="np-goal">North Star Goal</label>
+        <input type="text" id="np-goal" name="goal" placeholder="1-sentence project objective">
+      </div>
+      <div class="row-between" style="margin-top:6px">
+        <button type="button" data-close-dlg="dlg-new-project">Cancel</button>
+        <button type="submit" id="btn-submit-new-project" class="primary">Create Project</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Bind Git Repository -->
+  <dialog id="dlg-bind-repo" closedby="any" aria-labelledby="dlg-br-title">
+    <form action="#" method="post" class="dialog-body" id="form-bind-repo" aria-labelledby="dlg-br-title">
+      <h3 id="dlg-br-title" style="margin:0">Bind Git Repository</h3>
+      <div class="field">
+        <label for="br-path">Local Repository Path <span aria-hidden="true">*</span></label>
+        <input type="text" id="br-path" name="localPath" required autofocus autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="/Users/username/code/service-repo">
+      </div>
+      <div class="field">
+        <label for="br-name">Display Name (optional)</label>
+        <input type="text" id="br-name" name="name" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="service-repo">
+      </div>
+      <div class="field">
+        <label for="br-branch">Default Branch (optional)</label>
+        <input type="text" id="br-branch" name="defaultBranch" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="main">
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-bind-repo">Cancel</button>
+        <button type="submit" id="btn-submit-bind-repo" class="primary">Bind Repository</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Propose Thread -->
+  <dialog id="dlg-propose-thread" closedby="any" aria-labelledby="dlg-pt-title">
+    <form action="#" method="post" class="dialog-body" id="form-propose-thread" aria-labelledby="dlg-pt-title">
+      <h3 id="dlg-pt-title" style="margin:0">Propose Worker Thread</h3>
+      <div class="field">
+        <label for="pt-title">Thread Title <span aria-hidden="true">*</span></label>
+        <input type="text" id="pt-title" name="title" required autofocus placeholder="Implement OAuth PKCE callback">
+      </div>
+      <div class="field">
+        <label for="pt-role">Worker Role</label>
+        <select id="pt-role" name="role">
+          <option value="explorer">explorer (Read-Only)</option>
+          <option value="implementer">implementer (Isolated Worktree)</option>
+          <option value="verifier">verifier (QA &amp; Test Suite)</option>
+          <option value="pr-fixer">pr-fixer (CI Remediation)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="pt-desc">Task Brief &amp; Acceptance Criteria <span aria-hidden="true">*</span></label>
+        <textarea id="pt-desc" name="description" rows="4" required></textarea>
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-propose-thread">Cancel</button>
+        <button type="submit" class="primary">Add to Suggested</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Upsert Memory Topic -->
+  <dialog id="dlg-topic" closedby="any" aria-labelledby="dlg-top-title">
+    <form action="#" method="post" class="dialog-body" id="form-topic" aria-labelledby="dlg-top-title">
+      <h3 id="dlg-top-title" style="margin:0">Upsert Memory Topic</h3>
+      <div class="field">
+        <label for="top-slug">Topic Slug <span aria-hidden="true">*</span></label>
+        <input type="text" id="top-slug" name="topicSlug" required autofocus autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="architecture-decisions">
+      </div>
+      <div class="field">
+        <label for="top-title">Title <span aria-hidden="true">*</span></label>
+        <input type="text" id="top-title" name="title" required placeholder="Architecture Decisions">
+      </div>
+      <div class="field">
+        <label for="top-summary">1-Line Index Summary (for MEMORY.md) <span aria-hidden="true">*</span></label>
+        <input type="text" id="top-summary" name="indexSummaryLine" required placeholder="Key API boundaries and database invariants">
+      </div>
+      <div class="field">
+        <label for="top-body">Markdown Body <span aria-hidden="true">*</span></label>
+        <textarea id="top-body" name="markdownBody" rows="6" required></textarea>
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-topic">Cancel</button>
+        <button type="submit" class="primary">Save Topic</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Add Routine -->
+  <dialog id="dlg-routine" closedby="any" aria-labelledby="dlg-rt-title">
+    <form action="#" method="post" class="dialog-body" id="form-routine" aria-labelledby="dlg-rt-title">
+      <h3 id="dlg-rt-title" style="margin:0">Add Scheduled Cron Routine</h3>
+      <div class="field">
+        <label for="rt-name">Routine Name <span aria-hidden="true">*</span></label>
+        <input type="text" id="rt-name" name="name" required autofocus placeholder="Morning Test Audit">
+      </div>
+      <div class="field">
+        <label for="rt-cron">5-Field Cron Expression <span aria-hidden="true">*</span></label>
+        <input type="text" id="rt-cron" name="cronExpr" required autocorrect="off" autocapitalize="none" spellcheck="false" value="0 9 * * 1-5">
+      </div>
+      <div class="field">
+        <label for="rt-role">Target Role</label>
+        <select id="rt-role" name="targetRole">
+          <option value="explorer">explorer (Read-Only)</option>
+          <option value="verifier">verifier (Read-Only QA)</option>
+          <option value="implementer">implementer (Write Enabled)</option>
+          <option value="pr-fixer">pr-fixer (Write CI Remediation)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="rt-prompt">Prompt <span aria-hidden="true">*</span></label>
+        <textarea id="rt-prompt" name="prompt" rows="4" required placeholder="Check recent commits and summarize test health."></textarea>
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-routine">Cancel</button>
+        <button type="submit" class="primary">Save Routine</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Create Point-in-Time Snapshot (replaces window.prompt blocked in sandboxed iframes) -->
+  <dialog id="dlg-snapshot" closedby="any" aria-labelledby="dlg-snap-title">
+    <form action="#" method="post" class="dialog-body" id="form-snapshot" aria-labelledby="dlg-snap-title">
+      <h3 id="dlg-snap-title" style="margin:0">Create Point-in-Time Chat Snapshot</h3>
+      <div class="field">
+        <label for="snap-conv-id">Conversation ID <span aria-hidden="true">*</span></label>
+        <input type="text" id="snap-conv-id" name="conversationId" required autofocus autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+      </div>
+      <div class="field">
+        <label for="snap-title">Snapshot Title</label>
+        <input type="text" id="snap-title" name="title" placeholder="Optional snapshot label">
+      </div>
+      <div class="checkbox-row" style="margin-bottom:0">
+        <input type="checkbox" id="snap-publish-feed" name="publishToFeed">
+        <label for="snap-publish-feed">Publish to Project Activity Feed</label>
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-snapshot">Cancel</button>
+        <button type="submit" class="primary">Create Snapshot</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Thread Detail & Live Steering -->
+  <dialog id="dlg-thread-detail" closedby="any" aria-labelledby="dlg-td-title">
+    <div class="dialog-body">
+      <div class="row-between">
+        <h3 id="dlg-td-title" style="margin:0">Thread Inspector</h3>
+        <div style="display:flex;gap:6px">
+          <button type="button" id="btn-td-open-conv" class="small" hidden>↗ Open Subagent Conversation</button>
+          <button type="button" data-close-dlg="dlg-thread-detail" class="small">Close</button>
+        </div>
+      </div>
+      <div id="td-meta" class="muted mono"></div>
+      <pre id="td-telemetry" class="code-preview" role="region" aria-label="Thread telemetry log" tabindex="0"><code id="td-telemetry-code"></code></pre>
+      <form action="#" method="post" id="form-steer-thread" aria-labelledby="steer-form-label" style="display:flex;flex-direction:column;gap:8px">
+        <input type="hidden" id="steer-thread-id" name="threadId">
+        <div class="field">
+          <label for="steer-input" id="steer-form-label">Live Steering / Clarification Reply <span aria-hidden="true">*</span></label>
+          <textarea id="steer-input" name="message" rows="3" required autofocus placeholder="Send instructions, answers, or feedback to this thread..."></textarea>
+        </div>
+        <div class="row-between">
+          <span class="muted">Dispatches to the bound conversation via Sidecar SDK or wakes the headless worker.</span>
+          <button type="submit" id="btn-submit-steer" class="primary">Send Steering Message</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: Rollover Coordinator Session -->
+  <dialog id="dlg-rollover" closedby="any" aria-labelledby="dlg-ro-title">
+    <form action="#" method="post" class="dialog-body" id="form-rollover" aria-labelledby="dlg-ro-title">
+      <h3 id="dlg-ro-title" style="margin:0">Rollover Coordinator Session</h3>
+      <p id="ro-status-text" class="muted" style="margin:0"></p>
+      <div class="field">
+        <label for="ro-summary">Handoff Summary</label>
+        <input type="text" id="ro-summary" name="summary" autofocus placeholder="Completed Phase X; handing over to fresh Coordinator">
+      </div>
+      <div class="field">
+        <label for="ro-new-conv">Target New Conversation ID (optional)</label>
+        <input type="text" id="ro-new-conv" name="newConversationId" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Leave blank to launch a fresh Coordinator chat via Sidecar SDK">
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-rollover">Cancel</button>
+        <button type="submit" id="btn-submit-rollover" class="primary">Archive &amp; Rollover</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: File / Snapshot Preview -->
+  <dialog id="dlg-preview" closedby="any" aria-labelledby="dlg-prev-title">
+    <div class="dialog-body">
+      <div class="row-between">
+        <h3 id="dlg-prev-title" style="margin:0">Asset Preview</h3>
+        <button type="button" data-close-dlg="dlg-preview" class="small">Close</button>
+      </div>
+      <pre id="dlg-prev-body" class="code-preview" role="region" aria-labelledby="dlg-prev-title" tabindex="0"><code id="dlg-prev-code"></code></pre>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const urlParams = new URLSearchParams(window.location.search);
+      let sidecarToken =
+        (typeof window.__SIDECAR_TOKEN__ === "string" && window.__SIDECAR_TOKEN__) ||
+        urlParams.get("token") ||
+        "";
+      const HOST_CONVERSATION_ID =
+        (typeof window.__SIDECAR_CONVERSATION_ID__ === "string" && window.__SIDECAR_CONVERSATION_ID__) ||
+        urlParams.get("conversationId") ||
+        "";
+
+      let state = { initialized: false, projects: [] };
+      let detectedWorkspacePath = "";
+      let lastSeenVersion = "";
+      let loadedUiAssetMtimeMs = 0;
+      let pollInFlight = false;
+
+      function inferProjectNameFromPath(wsPath) {
+        if (!wsPath) return "";
+        const trimmed = String(wsPath).replace(/\/+$/, "");
+        const base = trimmed.split("/").pop() || "";
+        return base ? `${base} Project` : "";
+      }
+
+      function applyWorkspaceDefaults(wsPath) {
+        if (!wsPath) return;
+        for (const [wsId, nameId] of [["np-ws", "np-name"], ["inline-np-ws", "inline-np-name"]]) {
+          const wsEl = document.getElementById(wsId);
+          if (wsEl && !wsEl.value.trim()) {
+            wsEl.value = wsPath;
+          }
+          const nameEl = document.getElementById(nameId);
+          if (nameEl && !nameEl.value.trim()) {
+            nameEl.value = inferProjectNameFromPath(wsPath);
+          }
+        }
+      }
+
+      if (window.sidecar && typeof window.sidecar.onWorkspaceChange === "function") {
+        window.sidecar.onWorkspaceChange((uris) => {
+          if (Array.isArray(uris) && uris.length > 0) {
+            const first = String(uris[0] || "");
+            detectedWorkspacePath = first.startsWith("file://") ? decodeURIComponent(first.slice(7)) : first;
+            applyWorkspaceDefaults(detectedWorkspacePath);
+          }
+        });
+      }
+
+      function isOpaqueOrigin() {
+        try {
+          return !window.location.origin || window.location.origin === "null";
+        } catch {
+          return true;
+        }
+      }
+
+      function apiUrl(pathname) {
+        const clean = pathname.startsWith("/") ? pathname : `/${pathname}`;
+        if (!sidecarToken) return clean;
+        const sep = clean.includes("?") ? "&" : "?";
+        return `${clean}${sep}token=${encodeURIComponent(sidecarToken)}`;
+      }
+
+      function buildAuthHeaders(hasJsonBody) {
+        const headers = {};
+        if (isOpaqueOrigin() && sidecarToken) {
+          if (hasJsonBody) {
+            headers["Content-Type"] = "text/plain;charset=UTF-8";
+          }
+          return headers;
+        }
+        if (hasJsonBody) {
+          headers["Content-Type"] = "application/json";
+        }
+        if (sidecarToken) {
+          headers["X-Sidecar-Token"] = sidecarToken;
+        }
+        return headers;
+      }
+
+      async function fetchWithTimeout(url, options, timeoutMs) {
+        if (typeof AbortController !== "function") {
+          return fetch(url, options);
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(() => {
+          try { controller.abort(); } catch {}
+        }, timeoutMs || 8000);
+        try {
+          return await fetch(url, Object.assign({}, options || {}, { signal: controller.signal }));
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+
+      let refreshTokenPromise = null;
+      async function refreshSidecarToken() {
+        if (refreshTokenPromise) return refreshTokenPromise;
+        refreshTokenPromise = (async () => {
+          try {
+            const res = await fetchWithTimeout("/ui.html", { cache: "no-store" }, 5000);
+            if (!res.ok) return "";
+            const html = await res.text();
+            const m = html.match(/window\.__SIDECAR_TOKEN__\s*=\s*("[^"]+")/);
+            if (!m) return "";
+            const nextToken = JSON.parse(m[1]);
+            if (nextToken && typeof nextToken === "string") {
+              sidecarToken = nextToken;
+              window.__SIDECAR_TOKEN__ = nextToken;
+            }
+            return nextToken || "";
+          } catch {
+            return "";
+          } finally {
+            refreshTokenPromise = null;
+          }
+        })();
+        return refreshTokenPromise;
+      }
+
+      async function api(pathname, body) {
+        const isPost = body !== undefined;
+        const doFetch = () =>
+          fetchWithTimeout(
+            apiUrl(pathname),
+            {
+              method: isPost ? "POST" : "GET",
+              headers: buildAuthHeaders(isPost),
+              body: isPost ? JSON.stringify(body) : undefined,
+              cache: "no-store"
+            },
+            10000
+          );
+
+        let res = await doFetch();
+        if (res.status === 401) {
+          const refreshed = await refreshSidecarToken();
+          if (refreshed) {
+            res = await doFetch();
+          } else {
+            const nowMs = Date.now();
+            let lastReloadMs = 0;
+            try {
+              lastReloadMs = Number(sessionStorage.getItem("__agy_reload_ts") || "0");
+            } catch {}
+            if (!lastReloadMs && typeof window.name === "string" && window.name.startsWith("__agy_reload_ts:")) {
+              lastReloadMs = Number(window.name.slice("__agy_reload_ts:".length)) || 0;
+            }
+            if (!lastReloadMs || nowMs - lastReloadMs > 10000) {
+              try {
+                sessionStorage.setItem("__agy_reload_ts", String(nowMs));
+              } catch {}
+              try {
+                window.name = `__agy_reload_ts:${nowMs}`;
+              } catch {}
+              window.location.reload();
+            }
+          }
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data.error || `HTTP ${res.status}`);
+        }
+        return data;
+      }
+
+      function showToast(msg, isError) {
+        const el = document.getElementById("toast");
+        if (!el) return;
+        el.textContent = msg;
+        el.style.borderColor = isError ? "var(--ph-err)" : "var(--ph-accent)";
+        el.hidden = false;
+        clearTimeout(showToast._t);
+        showToast._t = setTimeout(() => { el.hidden = true; }, 3800);
+      }
+
+      function openDialog(id) {
+        const dlg = document.getElementById(id);
+        if (!dlg) return;
+        try {
+          if (!dlg.open) dlg.showModal();
+        } catch {
+          dlg.setAttribute("open", "");
+        }
+      }
+
+      function closeDialog(id) {
+        const dlg = document.getElementById(id);
+        if (!dlg) return;
+        try {
+          if (dlg.open) dlg.close();
+          else dlg.removeAttribute("open");
+        } catch {
+          dlg.removeAttribute("open");
+        }
+      }
+
+      // Safe untrusted HTML snippet renderer using native Sanitizer API setHTML() with textContent fallback
+      function renderSafeSnippet(container, rawSnippet) {
+        const escaped = String(rawSnippet || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+        const formatted = `<code>${escaped}</code>`;
+        if ("setHTML" in Element.prototype) {
+          container.setHTML(formatted, {
+            sanitizer: { elements: ["code", "mark", "strong", "em"], attributes: [] }
+          });
+        } else {
+          container.textContent = String(rawSnippet || "");
+        }
+      }
+
+      function formatElapsedSeconds(sec) {
+        const s = Math.max(0, Number(sec) || 0);
+        if (s >= 3600) {
+          return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+        }
+        if (s >= 60) {
+          return `${Math.floor(s / 60)}m ${s % 60}s`;
+        }
+        return `${s}s`;
+      }
+
+      // ---------- Modern Accessible Tabs (focusgroup + hidden="until-found" + beforematch) ----------
+      const tablist = document.getElementById("main-tablist");
+      const tabs = Array.from(tablist.querySelectorAll("button"));
+      const panels = tabs.map((t) => document.querySelector(`[aria-labelledby="${t.id}"]`));
+
+      function selectTab(nextTab) {
+        for (let i = 0; i < tabs.length; i++) {
+          const isSel = tabs[i] === nextTab;
+          tabs[i].setAttribute("aria-selected", String(isSel));
+          tabs[i].toggleAttribute("focusgroupstart", isSel);
+          if (isSel) {
+            panels[i].hidden = false;
+            panels[i].setAttribute("tabindex", "0");
+          } else {
+            panels[i].hidden = "until-found";
+            panels[i].removeAttribute("tabindex");
+          }
+        }
+        try {
+          nextTab.scrollIntoView({ block: "nearest", inline: "nearest", container: "nearest" });
+        } catch {
+          nextTab.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      }
+
+      for (let i = 0; i < tabs.length; i++) {
+        const tab = tabs[i];
+        const panel = panels[i];
+        tab.addEventListener("click", () => selectTab(tab));
+        tab.addEventListener("focus", () => selectTab(tab));
+        panel.addEventListener("beforematch", () => selectTab(tab));
+      }
+
+      // Synchronous focusgroup fallback when native focusGroup is unavailable
+      if (!Object.hasOwn(HTMLElement.prototype, "focusGroup")) {
+        tablist.setAttribute("role", "tablist");
+        const syncTabIndex = () => {
+          tabs.forEach((t) => {
+            t.setAttribute("role", "tab");
+            t.tabIndex = t.getAttribute("aria-selected") === "true" ? 0 : -1;
+          });
+        };
+        syncTabIndex();
+        tablist.addEventListener("keydown", (e) => {
+          const idx = tabs.indexOf(document.activeElement);
+          if (idx < 0) return;
+          let nextIdx = -1;
+          if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
+          else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
+          else if (e.key === "Home") nextIdx = 0;
+          else if (e.key === "End") nextIdx = tabs.length - 1;
+          if (nextIdx >= 0) {
+            e.preventDefault();
+            selectTab(tabs[nextIdx]);
+            syncTabIndex();
+            tabs[nextIdx].focus();
+          }
+        });
+        tabs.forEach((t) => t.addEventListener("click", syncTabIndex));
+      }
+
+      // Scroll-driven animation edge-fade fallback via IntersectionObserver
+      if (typeof CSS !== "undefined" && typeof CSS.supports === "function" && !CSS.supports("animation-timeline", "scroll()")) {
+        const firstTab = tablist.firstElementChild;
+        const lastTab = tablist.lastElementChild;
+        if (firstTab && lastTab && typeof IntersectionObserver === "function") {
+          const obs = new IntersectionObserver(
+            (entries) => {
+              for (const entry of entries) {
+                tablist.classList.toggle(
+                  entry.target === firstTab ? "more-start" : "more-end",
+                  entry.intersectionRatio < 1
+                );
+              }
+            },
+            { root: tablist, threshold: 1, rootMargin: "1px" }
+          );
+          obs.observe(firstTab);
+          obs.observe(lastTab);
+        }
+      }
+
+      // ---------- Modal <dialog> Setup (returnValue reset + pointerdown/pointerup light-dismiss fallback) ----------
+      const outsideDialogBox = (e, dlg) => {
+        const r = dlg.getBoundingClientRect();
+        return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+      };
+
+      for (const dlg of document.querySelectorAll("dialog")) {
+        dlg.addEventListener("close", () => {
+          dlg.returnValue = "";
+        });
+        if (dlg.getAttribute("closedby") === "any" && !("closedBy" in HTMLDialogElement.prototype)) {
+          let pressedOutside = false;
+          dlg.addEventListener("pointerdown", (e) => {
+            pressedOutside = e.target === dlg && outsideDialogBox(e, dlg);
+          });
+          dlg.addEventListener("pointerup", (e) => {
+            if (pressedOutside && e.target === dlg && outsideDialogBox(e, dlg)) {
+              dlg.close();
+            }
+            pressedOutside = false;
+          });
+        }
+      }
+
+      document.querySelectorAll("[data-close-dlg]").forEach((btn) => {
+        btn.addEventListener("click", () => closeDialog(btn.dataset.closeDlg));
+      });
+
+      // ---------- Sandbox-Proof Form Validation & Submission (works even without allow-forms) ----------
+      const formHandlers = new Map();
+
+      function clearFieldErrorOnInput(ctrl) {
+        if (ctrl._boundClearErr) return;
+        ctrl._boundClearErr = true;
+        ctrl.addEventListener("input", () => {
+          ctrl.removeAttribute("aria-invalid");
+        });
+      }
+
+      function validateRequiredFields(form) {
+        const requiredControls = Array.from(form.querySelectorAll("[required]"));
+        for (const ctrl of requiredControls) {
+          clearFieldErrorOnInput(ctrl);
+          if (!String(ctrl.value || "").trim()) {
+            ctrl.setAttribute("aria-invalid", "true");
+            ctrl.focus();
+            const labelEl = ctrl.id ? form.querySelector(`label[for="${ctrl.id}"]`) : null;
+            const labelText = labelEl ? labelEl.textContent.replace(/\*/g, "").trim() : ctrl.name || "field";
+            showToast(`Please enter required field: ${labelText}`, true);
+            return false;
+          }
+          ctrl.removeAttribute("aria-invalid");
+        }
+        return true;
+      }
+
+      async function executeFormSubmission(form) {
+        const handler = formHandlers.get(form.id);
+        if (!handler || form._submitting) return;
+        if (!validateRequiredFields(form)) return;
+
+        const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+        form._submitting = true;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+          await handler(form);
+        } catch (err) {
+          showToast(err.message || String(err), true);
+        } finally {
+          form._submitting = false;
+          if (submitBtn) submitBtn.disabled = false;
+        }
+      }
+
+      function registerFormHandler(formId, handler) {
+        formHandlers.set(formId, handler);
+        const form = document.getElementById(formId);
+        if (form && !form._submitBound) {
+          form._submitBound = true;
+          form.addEventListener("submit", (e) => {
+            e.preventDefault();
+            executeFormSubmission(form);
+          });
+        }
+      }
+
+      // Delegate submit clicks & IME-safe Enter presses globally because sandboxed iframes without allow-forms drop native form submission
+      document.addEventListener("click", (e) => {
+        const submitBtn =
+          e.target && typeof e.target.closest === "function"
+            ? e.target.closest('button[type="submit"], input[type="submit"]')
+            : null;
+        if (!submitBtn || submitBtn.disabled) return;
+        const form = submitBtn.form || submitBtn.closest("form");
+        if (!form || !formHandlers.has(form.id)) return;
+        e.preventDefault();
+        executeFormSubmission(form);
+      });
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        const target = e.target;
+        if (!target || target.tagName !== "INPUT") return;
+        const inputType = String(target.type || "text").toLowerCase();
+        if (["button", "submit", "reset", "checkbox", "radio", "file"].includes(inputType)) return;
+        const form = target.form || target.closest("form");
+        if (!form || !formHandlers.has(form.id)) return;
+        e.preventDefault();
+        // IME-safe Enter guard (blocks premature submission during CJK composition including WebKit keyCode 229)
+        if (e.isComposing || e.keyCode === 229) return;
+        executeFormSubmission(form);
+      });
+
+      function openNewProjectDialog() {
+        applyWorkspaceDefaults(detectedWorkspacePath);
+        openDialog("dlg-new-project");
+      }
+
+      async function createProjectFromInputs(nameId, wsId, goalId) {
+        const name = document.getElementById(nameId).value.trim();
+        const workspacePath = document.getElementById(wsId).value.trim();
+        const goal = document.getElementById(goalId).value.trim();
+        await api("/api/projects/create", {
+          name,
+          workspacePath,
+          goal,
+          coordinatorConversationId: HOST_CONVERSATION_ID || null
+        });
+        closeDialog("dlg-new-project");
+        showToast(`Initialized project "${name}"`);
+        await refreshState();
+      }
+
+      registerFormHandler("form-new-project", () => createProjectFromInputs("np-name", "np-ws", "np-goal"));
+      registerFormHandler("form-inline-init", () => createProjectFromInputs("inline-np-name", "inline-np-ws", "inline-np-goal"));
+
+      // ---------- UI Rendering ----------
+      function renderEmptyWelcomeCard() {
+        const welcomeHost = document.getElementById("overview-welcome-card");
+        const dashHost = document.getElementById("overview-dashboard");
+        if (welcomeHost) welcomeHost.hidden = false;
+        if (dashHost) dashHost.hidden = true;
+
+        if (document.getElementById("form-inline-init")) {
+          applyWorkspaceDefaults(detectedWorkspacePath);
+          return;
+        }
+        welcomeHost.replaceChildren();
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const h2 = document.createElement("h2");
+        h2.className = "card-title";
+        h2.id = "welcome-init-title";
+        h2.textContent = "Welcome to AGY Projects";
+
+        const intro = document.createElement("p");
+        intro.className = "muted";
+        intro.textContent =
+          "Create or bind a workspace project to activate 4-tier context hydration, parallel Git worktree threads, Contextual Hybrid RAG, and automated PR CI healing.";
+
+        const form = document.createElement("form");
+        form.id = "form-inline-init";
+        form.action = "#";
+        form.method = "post";
+        form.setAttribute("aria-labelledby", "welcome-init-title");
+        form._submitBound = true;
+        form.addEventListener("submit", (e) => {
+          e.preventDefault();
+          executeFormSubmission(form);
+        });
+
+        const makeField = (id, name, labelTxt, required, placeholder, isIdentifier) => {
+          const wrap = document.createElement("div");
+          wrap.className = "field";
+          const lbl = document.createElement("label");
+          lbl.htmlFor = id;
+          lbl.textContent = labelTxt;
+          if (required) {
+            const reqSpan = document.createElement("span");
+            reqSpan.setAttribute("aria-hidden", "true");
+            reqSpan.textContent = " *";
+            lbl.appendChild(reqSpan);
+          }
+          const inp = document.createElement("input");
+          inp.type = "text";
+          inp.id = id;
+          inp.name = name;
+          inp.placeholder = placeholder;
+          if (required) inp.required = true;
+          if (isIdentifier) {
+            inp.setAttribute("autocorrect", "off");
+            inp.setAttribute("autocapitalize", "none");
+            inp.spellcheck = false;
+          }
+          wrap.append(lbl, inp);
+          return wrap;
+        };
+
+        form.append(
+          makeField("inline-np-name", "name", "Project Name", true, "e.g. Core Platform", false),
+          makeField("inline-np-ws", "workspacePath", "Absolute Workspace Path", true, "/Users/username/code/my-repo", true),
+          makeField("inline-np-goal", "goal", "North Star Goal", false, "1-sentence project objective (optional)", false)
+        );
+
+        const actions = document.createElement("div");
+        actions.style.cssText = "display:flex;gap:8px;align-items:center;margin-top:10px";
+        const btnSubmit = document.createElement("button");
+        btnSubmit.type = "submit";
+        btnSubmit.id = "btn-empty-init";
+        btnSubmit.className = "primary";
+        btnSubmit.textContent = "+ Initialize Project";
+        actions.appendChild(btnSubmit);
+        form.appendChild(actions);
+
+        card.append(h2, intro, form);
+        welcomeHost.appendChild(card);
+        applyWorkspaceDefaults(detectedWorkspacePath);
+      }
+
+      const draftReplies = new Map();
+      const bucketOpenMap = new Map([
+        ["waiting_on_you", true],
+        ["ready_for_review", true],
+        ["suggested", true],
+        ["working", true],
+        ["landing", true],
+        ["paused", true],
+        ["idle", false],
+        ["resolved", false]
+      ]);
+      const selectedSuggestedIds = new Set();
+      let draftGoalText = null;
+      let lastActiveProjectId = "";
+      let inspectedThreadId = "";
+
+      function openConversationInHost(convId, label) {
+        if (!convId) {
+          showToast(`No bound conversation ID yet for ${label || "this thread"}.`, true);
+          return false;
+        }
+        if (window.sidecar?.ui && typeof window.sidecar.ui.toggleConversation === "function") {
+          window.sidecar.ui.toggleConversation(convId);
+          return true;
+        }
+        showToast(`Conversation ID: ${convId}`);
+        return false;
+      }
+
+      async function openCoordinatorChat() {
+        const cfg = state.config;
+        if (!cfg) return;
+        if (cfg.coordinatorConversationId) {
+          openConversationInHost(cfg.coordinatorConversationId, "Coordinator");
+          return;
+        }
+        if (window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
+          try {
+            const starter = `Continue coordinating AGY Project "${cfg.name}" in ${state.workspacePath}. Call get_project_overview first.`;
+            const res = await window.sidecar.agent.startConversation(starter, `${cfg.name} Coordinator`);
+            const newId = res?.conversationId || res?.response?.conversationId || "";
+            if (newId) {
+              await api("/api/projects/select", {
+                projectId: cfg.projectId,
+                bindCoordinatorConversationId: newId
+              });
+              openConversationInHost(newId, "Coordinator");
+              await refreshState();
+              return;
+            }
+          } catch (err) {
+            showToast(err.message || "Could not launch Coordinator chat", true);
+            return;
+          }
+        }
+        showToast("Bind the Coordinator from chat via create_project or select_project.");
+      }
+
+      async function startSuggestedThreadFromUi(thread, opts = {}) {
+        if (!thread) return;
+        const verb = opts && opts.isRetry ? "Retrying" : "Started";
+        const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
+        if (headlessReady) {
+          const res = await api("/api/threads/action", {
+            action: "start",
+            threadId: thread.thread_id,
+            launchHeadless: true
+          });
+          if (res.headlessAuthMissing) {
+            showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+          } else {
+            showToast(`${verb} ${thread.title}`);
+          }
+          await refreshState();
+          return;
+        }
+        if (window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
+          const prompt = [
+            `Execute AGY Project task "${thread.title}" (threadId: ${thread.thread_id}, role: ${thread.role}) in workspace ${state.workspacePath}.`,
+            thread.description ? `\nTask Brief:\n${thread.description}` : "",
+            `\nReport progress and completion via update_thread_state(workspacePath="${state.workspacePath}", threadId="${thread.thread_id}", ...).`
+          ].join("\n");
+          const started = await window.sidecar.agent.startConversation(prompt, thread.title);
+          const newConvId = started?.conversationId || started?.response?.conversationId || "";
+          await api("/api/threads/action", {
+            action: "start",
+            threadId: thread.thread_id,
+            conversationId: newConvId || undefined,
+            launchHeadless: false
+          });
+          if (newConvId) {
+            openConversationInHost(newConvId, thread.title);
+          } else {
+            showToast(`${verb} ${thread.title} in native chat`);
+          }
+          await refreshState();
+          return;
+        }
+        const res = await api("/api/threads/action", {
+          action: "start",
+          threadId: thread.thread_id,
+          launchHeadless: true
+        });
+        if (res.headlessAuthMissing) {
+          showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+        } else {
+          showToast(`${verb} ${thread.title}`);
+        }
+        await refreshState();
+      }
+
+      async function startSuggestedBatchFromUi({ mode = "all", threadIds = [] } = {}) {
+        const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
+        const hasNativeChat = Boolean(
+          window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function"
+        );
+        if (!headlessReady && hasNativeChat) {
+          const allThreads = Array.isArray(state.threads) ? state.threads : [];
+          const idSet = new Set((threadIds || []).map(String));
+          const targets = allThreads.filter(
+            (t) => t.ui_bucket === "suggested" && (mode === "all" || idSet.has(String(t.thread_id)))
+          );
+          let startedCount = 0;
+          for (const t of targets) {
+            try {
+              await startSuggestedThreadFromUi(t);
+              startedCount++;
+            } catch (err) {
+              showToast(err.message || "Failed to start task", true);
+              break;
+            }
+          }
+          selectedSuggestedIds.clear();
+          if (targets.length === 0) showToast("Started 0 task(s)");
+          else if (startedCount > 0) showToast(`Started ${startedCount} task(s) in native chat`);
+          return;
+        }
+
+        const payload =
+          mode === "selected"
+            ? { action: "start_selected", threadIds: Array.from(threadIds || []), launchHeadless: true }
+            : { action: "start_all", launchHeadless: true };
+        const res = await api("/api/threads/action", payload);
+        selectedSuggestedIds.clear();
+        if (res.headlessAuthMissing) {
+          showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+        } else {
+          showToast(
+            mode === "selected"
+              ? `Started ${res.startedCount} selected task(s)`
+              : `Started ${res.startedCount} task(s)`
+          );
+        }
+        await refreshState();
+      }
+
+      async function sendThreadReplyOrSteer(thread, messageText) {
+        const msg = String(messageText || "").trim();
+        if (!msg) return;
+        const res = await api("/api/threads/action", {
+          action: "steer",
+          threadId: thread.thread_id,
+          message: msg,
+          launchHeadlessFallback: !thread.conversation_id
+        });
+        if (thread.conversation_id && window.sidecar?.agent && typeof window.sidecar.agent.sendMessage === "function") {
+          try {
+            await window.sidecar.agent.sendMessage(msg, thread.conversation_id);
+          } catch {}
+        }
+        draftReplies.delete(thread.thread_id);
+        if (res.headlessAuthMissing) {
+          showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+        } else {
+          showToast(`Sent steering message to ${thread.title}`);
+        }
+        await refreshState();
+      }
+
+      function populateThreadDetailModal(thread) {
+        if (!thread) return;
+        inspectedThreadId = thread.thread_id;
+        document.getElementById("dlg-td-title").textContent = thread.title;
+        document.getElementById("steer-thread-id").value = thread.thread_id;
+
+        const btnOpenConv = document.getElementById("btn-td-open-conv");
+        btnOpenConv.hidden = !thread.conversation_id;
+
+        let globs = [];
+        try {
+          globs = Array.isArray(thread.owned_globs) ? thread.owned_globs : JSON.parse(thread.owned_globs_json || "[]");
+        } catch {}
+
+        const metaLines = [
+          `Thread ID: ${thread.thread_id} | Role: ${thread.role} | Bucket: ${thread.ui_bucket} (${thread.server_status})`,
+          `Conversation: ${thread.conversation_id || "(Headless SDK / Pending)"} | Model: ${thread.model || "inherit"}`,
+          `Workspace Mode: ${thread.workspace_mode}${thread.branch_name ? ` | Branch: ${thread.branch_name}` : ""}`,
+          ...(thread.worktree_path ? [`Worktree: ${thread.worktree_path}`] : []),
+          ...(globs.length ? [`Owned Globs: ${globs.join(", ")}`] : []),
+          `Estimated Tokens: ${(thread.token_usage_est || 0).toLocaleString()}`
+        ];
+        document.getElementById("td-meta").textContent = metaLines.join("\n");
+
+        let telemetry = [];
+        try {
+          telemetry = Array.isArray(thread.live_telemetry)
+            ? thread.live_telemetry
+            : JSON.parse(thread.live_telemetry_json || "[]");
+        } catch {}
+        const telLines = telemetry.length
+          ? telemetry.map((ev) => `[${ev.at || ""}] (${ev.type || "event"}) ${ev.tool ? ev.tool + " " : ""}${ev.text || ev.args || ""}`.trim())
+          : [thread.blocking_question || thread.last_summary || thread.description || "No telemetry events recorded yet."];
+        document.getElementById("td-telemetry-code").textContent = telLines.join("\n");
+      }
+
+      function openThreadDetailDialog(thread) {
+        populateThreadDetailModal(thread);
+        openDialog("dlg-thread-detail");
+      }
+
+      function renderAll() {
+        try {
+          const switcher = document.getElementById("project-switcher");
+          if (switcher) {
+            switcher.replaceChildren();
+            const showArchived = Boolean(document.getElementById("chk-show-archived")?.checked);
+            const projects = state.projects || [];
+            const visibleProjects = projects.filter(
+              (p) => showArchived || p.status !== "archived" || p.projectId === state.activeProjectId
+            );
+            if (visibleProjects.length === 0) {
+              const opt = document.createElement("option");
+              opt.value = "";
+              opt.textContent = projects.length > 0 ? "Only archived projects (enable in Settings)" : "No projects yet";
+              switcher.appendChild(opt);
+            } else {
+              const sorted = [...visibleProjects].sort(
+                (a, b) =>
+                  Number(Boolean(b.starred)) - Number(Boolean(a.starred)) ||
+                  String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+              );
+              for (const p of sorted) {
+                const opt = document.createElement("option");
+                opt.value = p.projectId;
+                opt.textContent = `${p.starred ? "★ " : ""}${p.name}${p.status !== "active" ? ` (${p.status})` : ""}`;
+                if (p.projectId === state.activeProjectId) opt.selected = true;
+                switcher.appendChild(opt);
+              }
+            }
+          }
+
+          const badge = document.getElementById("status-badge");
+          const btnPause = document.getElementById("btn-pause-resume");
+          const btnStar = document.getElementById("btn-star");
+          const btnOpenCoord = document.getElementById("btn-open-coordinator");
+          const btnRollover = document.getElementById("btn-rollover-coordinator");
+
+          if (!state.initialized || !state.config) {
+            if (badge) {
+              badge.textContent = "No Project";
+              badge.className = "badge";
+            }
+            if (btnPause) btnPause.disabled = true;
+            if (btnStar) btnStar.disabled = true;
+            if (btnOpenCoord) btnOpenCoord.disabled = true;
+            if (btnRollover) btnRollover.disabled = true;
+            renderEmptyWelcomeCard();
+            return;
+          }
+
+          const cfg = state.config;
+          if (lastActiveProjectId !== cfg.projectId) {
+            lastActiveProjectId = cfg.projectId;
+            draftGoalText = null;
+            selectedSuggestedIds.clear();
+          }
+          const welcomeEl = document.getElementById("overview-welcome-card");
+          const dashEl = document.getElementById("overview-dashboard");
+          if (welcomeEl) welcomeEl.hidden = true;
+          if (dashEl) dashEl.hidden = false;
+
+          if (btnPause) {
+            btnPause.disabled = false;
+            btnPause.textContent = cfg.status === "active" ? "Pause" : "Resume";
+          }
+          if (btnStar) {
+            btnStar.disabled = false;
+            btnStar.textContent = cfg.starred ? "★" : "☆";
+          }
+          if (btnOpenCoord) btnOpenCoord.disabled = false;
+          if (btnRollover) btnRollover.disabled = false;
+          if (badge) {
+            const statusLabel = cfg.status ? cfg.status.charAt(0).toUpperCase() + cfg.status.slice(1) : "Active";
+            badge.textContent = statusLabel;
+            badge.className = `badge ${cfg.status === "active" ? "ok" : cfg.status === "paused" ? "warn" : "err"}`;
+          }
+
+          const threads = state.threads || [];
+          const activeThreads = threads.filter((t) => t.ui_bucket !== "resolved");
+          const cntThreads = document.getElementById("cnt-threads");
+          const cntLibrary = document.getElementById("cnt-library");
+          const cntPrs = document.getElementById("cnt-prs");
+          if (cntThreads) cntThreads.textContent = `(${activeThreads.length})`;
+          if (cntLibrary) cntLibrary.textContent = `(${(state.library?.items || []).length})`;
+          if (cntPrs) cntPrs.textContent = `(${(state.pullRequests || []).length})`;
+
+          renderOverview(cfg, threads);
+          renderThreads(threads);
+          renderLibrary(state.library);
+          renderMemory(state.memory, cfg);
+          renderPrs(state.repositories || [], state.pullRequests || []);
+          renderSettings(cfg, state.routines || [], state.snapshots || [], state.diagnostics || null);
+
+          const detailDlg = document.getElementById("dlg-thread-detail");
+          if (detailDlg && detailDlg.open && inspectedThreadId) {
+            const refreshedThread = threads.find((t) => t.thread_id === inspectedThreadId);
+            if (refreshedThread) populateThreadDetailModal(refreshedThread);
+          }
+        } catch (err) {
+          console.error("renderAll error:", err);
+        }
+      }
+
+      function syncGoalSaveVisibility() {
+        const goalInp = document.getElementById("ov-goal-input");
+        const saveBtn = document.getElementById("btn-save-inline-goal");
+        if (!goalInp || !saveBtn) return;
+        const savedGoal = (state.config?.goal || "").trim();
+        const isDirty = goalInp.value.trim() !== savedGoal;
+        saveBtn.hidden = !(document.activeElement === goalInp || isDirty);
+      }
+
+      function formatThreadRoleBadge(t) {
+        const roleMap = {
+          explorer: "Explorer",
+          implementer: "Implementer",
+          verifier: "Verifier",
+          "pr-fixer": "PR Fixer",
+          pr_fixer: "PR Fixer"
+        };
+        const modeMap = {
+          inherit: "Shared workspace",
+          share: "Isolated worktree",
+          branch: "Branch clone",
+          worktree: "Isolated worktree"
+        };
+        const r = roleMap[t.role] || t.role;
+        const m = modeMap[t.workspace_mode] || t.workspace_mode;
+        return `${r} · ${m}`;
+      }
+
+      function renderOverview(cfg, threads) {
+        const acc = document.getElementById("overview-buckets-accordion");
+        const activeReplyTid =
+          document.activeElement && acc.contains(document.activeElement)
+            ? document.activeElement.getAttribute("data-reply-tid") || ""
+            : "";
+        const activeSelStart = activeReplyTid ? document.activeElement.selectionStart : null;
+        const activeSelEnd = activeReplyTid ? document.activeElement.selectionEnd : null;
+
+        const bannersHost = document.getElementById("overview-banners");
+        bannersHost.replaceChildren();
+        if (cfg.status === "paused") {
+          const banner = document.createElement("div");
+          banner.className = "card row-between";
+          banner.style.borderColor = "var(--ph-warn)";
+          banner.style.marginBottom = "12px";
+          const msg = document.createElement("span");
+          msg.textContent = "Project is PAUSED. New turns, scheduled routines, and PR Auto-Fix watchers are frozen.";
+          const bRes = document.createElement("button");
+          bRes.type = "button";
+          bRes.id = "btn-banner-resume";
+          bRes.className = "primary small";
+          bRes.textContent = "▶ Resume Project";
+          bRes.addEventListener("click", async () => {
+            try {
+              await api("/api/projects/lifecycle", { status: "active" });
+              showToast("Project resumed");
+              await refreshState();
+            } catch (err) { showToast(err.message, true); }
+          });
+          banner.append(msg, bRes);
+          bannersHost.appendChild(banner);
+        } else if (cfg.status === "archived") {
+          const banner = document.createElement("div");
+          banner.className = "card row-between";
+          banner.style.borderColor = "var(--ph-err)";
+          banner.style.marginBottom = "12px";
+          const msg = document.createElement("span");
+          msg.textContent = "Project is ARCHIVED. Background workers and hooks are halted.";
+          const bUnarch = document.createElement("button");
+          bUnarch.type = "button";
+          bUnarch.id = "btn-banner-unarchive";
+          bUnarch.className = "primary small";
+          bUnarch.textContent = "↺ Unarchive Project";
+          bUnarch.addEventListener("click", async () => {
+            try {
+              await api("/api/projects/lifecycle", { status: "active" });
+              showToast("Project unarchived");
+              await refreshState();
+            } catch (err) { showToast(err.message, true); }
+          });
+          banner.append(msg, bUnarch);
+          bannersHost.appendChild(banner);
+        }
+
+        document.getElementById("ov-project-name").textContent = cfg.name;
+        document.getElementById("ov-ws-path").textContent = state.workspacePath || "";
+        const goalInput = document.getElementById("ov-goal-input");
+        if (goalInput && document.activeElement !== goalInput && draftGoalText === null) {
+          goalInput.value = cfg.goal || "";
+        }
+        syncGoalSaveVisibility();
+
+        const ctxGrid = document.getElementById("overview-context-grid");
+        ctxGrid.replaceChildren();
+        const addContextCard = (tabId, kickerTxt, mainTxt, subTxt) => {
+          const cardBtn = document.createElement("button");
+          cardBtn.type = "button";
+          cardBtn.className = "context-card";
+          const kicker = document.createElement("span");
+          kicker.className = "context-card-kicker";
+          const kLabel = document.createElement("span");
+          kLabel.textContent = kickerTxt;
+          const kArrow = document.createElement("span");
+          kArrow.setAttribute("aria-hidden", "true");
+          kArrow.textContent = "↗";
+          kicker.append(kLabel, kArrow);
+
+          const main = document.createElement("span");
+          main.className = "context-card-main";
+          main.textContent = mainTxt;
+
+          const sub = document.createElement("span");
+          sub.className = "context-card-sub";
+          sub.textContent = subTxt;
+
+          cardBtn.append(kicker, main, sub);
+          cardBtn.addEventListener("click", () => {
+            const tabEl = document.getElementById(tabId);
+            if (tabEl) selectTab(tabEl);
+          });
+          ctxGrid.appendChild(cardBtn);
+        };
+
+        const hasRules = Boolean((cfg.instructions || "").trim());
+        const topicCount = (state.memory?.topics || []).length;
+        const memLines = state.memory?.lineCount || 0;
+        addContextCard(
+          "tab-memory",
+          "Instructions & Memory",
+          !hasRules && topicCount === 0
+            ? "Not set up yet"
+            : `${hasRules ? "Rules active" : "No rules yet"} • ${topicCount} ${topicCount === 1 ? "memory" : "memories"}`,
+          !hasRules && topicCount === 0
+            ? "Add standing rules & persistent project notes"
+            : `${memLines}/${cfg.memory.maxIndexLines} index lines loaded into every chat`
+        );
+
+        const lib = state.library || {};
+        const libCount = (lib.items || []).length;
+        const totalTokens = Number(lib.totalTokens || 0);
+        addContextCard(
+          "tab-library",
+          "Knowledge Library",
+          libCount === 0
+            ? "No reference files"
+            : `${libCount} ${libCount === 1 ? "file" : "files"} (${totalTokens.toLocaleString()} tokens)`,
+          libCount === 0
+            ? "Drop docs, specs, or PDFs to ground chats"
+            : (lib.mode === "pinned" ? "Auto-included directly in every chat" : "Indexed for semantic + keyword search")
+        );
+
+        const repos = state.repositories || [];
+        const repoCount = repos.length;
+        const openPrsCount = (state.pullRequests || []).filter((pr) => {
+          const th = threads.find((x) => x.thread_id === pr.thread_id);
+          return !th || th.ui_bucket !== "resolved";
+        }).length;
+        addContextCard(
+          "tab-prs",
+          "Repositories & PRs",
+          repoCount === 0
+            ? "No Git repo linked"
+            : (openPrsCount > 0
+                ? `${openPrsCount} open ${openPrsCount === 1 ? "PR" : "PRs"}`
+                : `${repoCount} ${repoCount === 1 ? "repo" : "repos"} • 0 open PRs`),
+          repoCount === 0
+            ? "Link a repo for isolated branches & CI checks"
+            : `${repos.map((r) => r.name).join(", ")} • Auto-watches PR checks`
+        );
+
+        const headerEl = document.getElementById("overview-buckets-header");
+        const nodes = [headerEl];
+        const bucketSpecs = [
+          ["waiting_on_you", "Needs Your Input", "Blocked on a question or failed run", "warn", true],
+          ["ready_for_review", "Ready for Review", "Finished work ready to check", "ok", true],
+          ["working", "In Progress", "Running now", "ok", true],
+          ["landing", "Ready to Merge", "Approved with passing checks", "ok", true],
+          ["suggested", "Suggested Tasks", "Optional tasks ready to run", "", true],
+          ["paused", "Paused", "Frozen while project is paused", "warn", true],
+          ["idle", "Idle", "Inactive threads", "", false],
+          ["resolved", "Completed", "Finished history", "", false]
+        ];
+
+        const prs = state.pullRequests || [];
+        let renderedBucketCount = 0;
+
+        for (const [bucketKey, bucketLabel, bucketHint, badgeTone, defaultOpen] of bucketSpecs) {
+          const bThreads = threads.filter((t) => t.ui_bucket === bucketKey);
+          if (bThreads.length === 0) continue;
+          renderedBucketCount++;
+
+          const details = document.createElement("details");
+          details.className = "bucket-group";
+          details.open = bucketOpenMap.has(bucketKey) ? bucketOpenMap.get(bucketKey) : defaultOpen;
+          details.addEventListener("toggle", () => {
+            bucketOpenMap.set(bucketKey, details.open);
+          });
+
+          const summary = document.createElement("summary");
+          const sumLabel = document.createElement("span");
+          sumLabel.textContent = bucketLabel;
+          const sumBadge = document.createElement("span");
+          sumBadge.className = badgeTone ? `badge ${badgeTone}` : "badge";
+          sumBadge.textContent = String(bThreads.length);
+          const sumHint = document.createElement("span");
+          sumHint.className = "muted";
+          sumHint.style.cssText = "font-weight:400;font-size:11.5px;margin-inline-start:auto";
+          sumHint.textContent = bucketHint;
+          summary.append(sumLabel, sumBadge, sumHint);
+          details.appendChild(summary);
+
+          const body = document.createElement("div");
+          body.className = "bucket-body";
+
+          if (bucketKey === "suggested") {
+            const toolbar = document.createElement("div");
+            toolbar.style.cssText = "display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap";
+            const bSel = document.createElement("button");
+            bSel.type = "button";
+            bSel.id = "btn-ov-start-selected";
+            bSel.className = "primary small";
+            bSel.textContent = "▶ Run Selected";
+            bSel.addEventListener("click", async () => {
+              if (selectedSuggestedIds.size === 0) {
+                showToast("Select one or more suggested tasks first", true);
+                return;
+              }
+              try {
+                await startSuggestedBatchFromUi({
+                  mode: "selected",
+                  threadIds: Array.from(selectedSuggestedIds)
+                });
+              } catch (err) { showToast(err.message, true); }
+            });
+            const bAll = document.createElement("button");
+            bAll.type = "button";
+            bAll.id = "btn-ov-start-all";
+            bAll.className = "small";
+            bAll.textContent = "▶▶ Run All";
+            bAll.addEventListener("click", async () => {
+              try {
+                await startSuggestedBatchFromUi({ mode: "all" });
+              } catch (err) { showToast(err.message, true); }
+            });
+            toolbar.append(bSel, bAll);
+            body.appendChild(toolbar);
+          }
+
+          for (const t of bThreads) {
+            const row = document.createElement("div");
+            row.className = "thread-item";
+            const top = document.createElement("div");
+            top.className = "row-between";
+
+            const titleWrap = document.createElement("div");
+            titleWrap.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap";
+            if (bucketKey === "suggested") {
+              const chk = document.createElement("input");
+              chk.type = "checkbox";
+              chk.id = `sel-sug-${t.thread_id}`;
+              chk.checked = selectedSuggestedIds.has(t.thread_id);
+              chk.addEventListener("change", () => {
+                if (chk.checked) selectedSuggestedIds.add(t.thread_id);
+                else selectedSuggestedIds.delete(t.thread_id);
+              });
+              const lbl = document.createElement("label");
+              lbl.htmlFor = chk.id;
+              const strong = document.createElement("strong");
+              strong.textContent = t.title;
+              lbl.appendChild(strong);
+              titleWrap.append(chk, lbl);
+            } else {
+              if (bucketKey === "working") {
+                const dot = document.createElement("span");
+                dot.className = "live-dot";
+                dot.setAttribute("aria-hidden", "true");
+                titleWrap.appendChild(dot);
+              }
+              const strong = document.createElement("strong");
+              strong.textContent = t.title;
+              titleWrap.appendChild(strong);
+            }
+
+            const badgeGroup = document.createElement("div");
+            badgeGroup.style.cssText = "display:flex;gap:4px;align-items:center;flex-wrap:wrap";
+            if (bucketKey === "ready_for_review") {
+              const matchPr = prs.find((pr) => pr.thread_id === t.thread_id);
+              if (matchPr) {
+                if (matchPr.merge_order_rank) {
+                  const rankBadge = document.createElement("span");
+                  rankBadge.className = "badge";
+                  rankBadge.textContent = `Merge #${matchPr.merge_order_rank}`;
+                  badgeGroup.appendChild(rankBadge);
+                }
+                const prBadge = document.createElement("span");
+                prBadge.className = `badge ${matchPr.ci_status === "passing" ? "ok" : matchPr.ci_status === "pending" ? "warn" : "err"}`;
+                prBadge.textContent = `PR #${matchPr.pr_number} • ${matchPr.ci_status}`;
+                badgeGroup.appendChild(prBadge);
+                if (Number(matchPr.additions || 0) > 0 || Number(matchPr.deletions || 0) > 0) {
+                  const diffBadge = document.createElement("span");
+                  diffBadge.className = "badge mono";
+                  diffBadge.textContent = `+${Number(matchPr.additions || 0)} / -${Number(matchPr.deletions || 0)}`;
+                  badgeGroup.appendChild(diffBadge);
+                }
+              }
+            }
+            const b = document.createElement("span");
+            b.className = `badge ${bucketKey === "waiting_on_you" ? "warn" : bucketKey === "working" ? "ok" : ""}`;
+            b.textContent = formatThreadRoleBadge(t);
+            badgeGroup.appendChild(b);
+
+            top.append(titleWrap, badgeGroup);
+            row.appendChild(top);
+
+            if (bucketKey === "working") {
+              const refTs = Date.parse(t.working_since || t.created_at || t.updated_at || "");
+              const sec = Number.isFinite(refTs) ? Math.max(0, Math.floor((Date.now() - refTs) / 1000)) : 0;
+              const repoObj = (state.repositories || []).find((r) => r.repo_id === t.repo_id);
+              const workMeta = document.createElement("div");
+              workMeta.className = "muted mono";
+              workMeta.style.marginTop = "4px";
+              const timerSpan = document.createElement("span");
+              if (Number.isFinite(refTs)) {
+                timerSpan.setAttribute("data-working-since", String(refTs));
+              }
+              timerSpan.textContent = `Running ${formatElapsedSeconds(sec)}`;
+              workMeta.appendChild(timerSpan);
+              if (repoObj?.name) workMeta.appendChild(document.createTextNode(` • Repo: ${repoObj.name}`));
+              if (t.branch_name) workMeta.appendChild(document.createTextNode(` • Branch: ${t.branch_name}`));
+              row.appendChild(workMeta);
+            }
+
+            if (bucketKey === "waiting_on_you") {
+              const descText = t.description || t.last_summary || "";
+              if (descText) {
+                const desc = document.createElement("div");
+                desc.className = "muted";
+                desc.style.marginTop = "4px";
+                desc.textContent = descText;
+                row.appendChild(desc);
+              }
+              const isRunError = Boolean(t.blocking_is_error);
+              if (t.blocking_question) {
+                const callout = document.createElement("div");
+                callout.className = `callout-note${isRunError ? " err" : ""}`;
+                callout.textContent = t.blocking_question;
+                row.appendChild(callout);
+              }
+
+              if (isRunError) {
+                const errActions = document.createElement("div");
+                errActions.style.cssText = "display:flex;gap:6px;margin-top:8px;flex-wrap:wrap";
+                const btnRetry = document.createElement("button");
+                btnRetry.type = "button";
+                btnRetry.className = "primary small";
+                btnRetry.textContent = "↻ Retry";
+                btnRetry.addEventListener("click", async () => {
+                  try {
+                    await startSuggestedThreadFromUi(t, { isRetry: true });
+                  } catch (err) { showToast(err.message, true); }
+                });
+                const btnDismiss = document.createElement("button");
+                btnDismiss.type = "button";
+                btnDismiss.className = "small";
+                btnDismiss.textContent = "Dismiss";
+                btnDismiss.addEventListener("click", async () => {
+                  try {
+                    await api("/api/threads/action", { action: "dismiss", threadId: t.thread_id });
+                    await refreshState();
+                  } catch (err) { showToast(err.message, true); }
+                });
+                const btnDet = document.createElement("button");
+                btnDet.type = "button";
+                btnDet.className = "small";
+                btnDet.textContent = "Details";
+                btnDet.addEventListener("click", () => openThreadDetailDialog(t));
+                errActions.append(btnRetry, btnDismiss, btnDet);
+                if (t.conversation_id) {
+                  const btnOpen = document.createElement("button");
+                  btnOpen.type = "button";
+                  btnOpen.className = "small";
+                  btnOpen.textContent = "↗ Open Chat";
+                  btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
+                  errActions.appendChild(btnOpen);
+                }
+                row.appendChild(errActions);
+              } else {
+                const replyRow = document.createElement("div");
+                replyRow.style.cssText = "display:flex;gap:6px;margin-top:8px;flex-wrap:wrap";
+                const inp = document.createElement("input");
+                inp.type = "text";
+                inp.setAttribute("data-reply-tid", t.thread_id);
+                inp.style.flex = "1";
+                inp.style.minWidth = "160px";
+                inp.placeholder = "Type answer or approval note...";
+                inp.setAttribute("aria-label", `Reply to ${t.title}`);
+                inp.value = draftReplies.get(t.thread_id) || "";
+                inp.addEventListener("input", () => draftReplies.set(t.thread_id, inp.value));
+                inp.addEventListener("keydown", async (e) => {
+                  if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;
+                  e.preventDefault();
+                  if (!inp.value.trim()) return;
+                  try { await sendThreadReplyOrSteer(t, inp.value.trim()); } catch (err) { showToast(err.message, true); }
+                });
+
+                const btnReply = document.createElement("button");
+                btnReply.type = "button";
+                btnReply.className = "primary small";
+                btnReply.textContent = "Reply";
+                btnReply.addEventListener("click", async () => {
+                  if (!inp.value.trim()) { inp.focus(); return; }
+                  try { await sendThreadReplyOrSteer(t, inp.value.trim()); } catch (err) { showToast(err.message, true); }
+                });
+
+                const btnApprove = document.createElement("button");
+                btnApprove.type = "button";
+                btnApprove.className = "small";
+                btnApprove.textContent = "✓ Approve";
+                btnApprove.addEventListener("click", async () => {
+                  try { await sendThreadReplyOrSteer(t, "Approved. Please proceed."); } catch (err) { showToast(err.message, true); }
+                });
+
+                const btnDet = document.createElement("button");
+                btnDet.type = "button";
+                btnDet.className = "small";
+                btnDet.textContent = "Details";
+                btnDet.addEventListener("click", () => openThreadDetailDialog(t));
+
+                replyRow.append(inp, btnReply, btnApprove, btnDet);
+                if (t.conversation_id) {
+                  const btnOpen = document.createElement("button");
+                  btnOpen.type = "button";
+                  btnOpen.className = "small";
+                  btnOpen.textContent = "↗ Open Chat";
+                  btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
+                  replyRow.appendChild(btnOpen);
+                }
+                row.appendChild(replyRow);
+                if (activeReplyTid && activeReplyTid === t.thread_id) {
+                  queueMicrotask(() => {
+                    try {
+                      inp.focus();
+                      if (activeSelStart !== null && activeSelEnd !== null) {
+                        inp.setSelectionRange(activeSelStart, activeSelEnd);
+                      }
+                    } catch {}
+                  });
+                }
+              }
+            } else {
+              const descText = t.last_summary || t.description || "";
+              if (descText) {
+                const desc = document.createElement("div");
+                desc.className = "muted";
+                desc.style.marginTop = "4px";
+                desc.textContent = descText;
+                row.appendChild(desc);
+              }
+              const actions = document.createElement("div");
+              actions.style.cssText = "display:flex;gap:6px;margin-top:6px;flex-wrap:wrap";
+              if (bucketKey === "suggested") {
+                const btnStart = document.createElement("button");
+                btnStart.type = "button";
+                btnStart.className = "primary small";
+                btnStart.textContent = "▶ Run";
+                btnStart.addEventListener("click", async () => {
+                  try {
+                    await startSuggestedThreadFromUi(t);
+                  } catch (err) { showToast(err.message, true); }
+                });
+                const btnDismiss = document.createElement("button");
+                btnDismiss.type = "button";
+                btnDismiss.className = "small";
+                btnDismiss.textContent = "Dismiss";
+                btnDismiss.addEventListener("click", async () => {
+                  try {
+                    await api("/api/threads/action", { action: "dismiss", threadId: t.thread_id });
+                    await refreshState();
+                  } catch (err) { showToast(err.message, true); }
+                });
+                actions.append(btnStart, btnDismiss);
+              } else if (bucketKey === "working") {
+                const btnInt = document.createElement("button");
+                btnInt.type = "button";
+                btnInt.className = "danger small";
+                btnInt.textContent = "⏸ Interrupt";
+                btnInt.addEventListener("click", async () => {
+                  try {
+                    await api("/api/threads/action", { action: "interrupt", threadId: t.thread_id });
+                    showToast(`Interrupted ${t.title}`);
+                    await refreshState();
+                  } catch (err) { showToast(err.message, true); }
+                });
+                actions.appendChild(btnInt);
+              }
+
+              if (bucketKey !== "suggested") {
+                const btnDet = document.createElement("button");
+                btnDet.type = "button";
+                btnDet.className = "small";
+                btnDet.textContent = "Details";
+                btnDet.addEventListener("click", () => openThreadDetailDialog(t));
+                actions.appendChild(btnDet);
+              }
+
+              if (t.conversation_id) {
+                const btnOpen = document.createElement("button");
+                btnOpen.type = "button";
+                btnOpen.className = "small";
+                btnOpen.textContent = "↗ Open Chat";
+                btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
+                actions.appendChild(btnOpen);
+              }
+
+              if (bucketKey === "ready_for_review" || bucketKey === "landing" || bucketKey === "paused" || bucketKey === "idle") {
+                const btnRes = document.createElement("button");
+                btnRes.type = "button";
+                btnRes.className = "small";
+                btnRes.textContent = "✓ Mark Resolved";
+                btnRes.addEventListener("click", async () => {
+                  try {
+                    await api("/api/threads/action", { action: "update", threadId: t.thread_id, uiBucket: "resolved" });
+                    await refreshState();
+                  } catch (err) { showToast(err.message, true); }
+                });
+                actions.appendChild(btnRes);
+              }
+              row.appendChild(actions);
+            }
+
+            body.appendChild(row);
+          }
+
+          details.appendChild(body);
+          nodes.push(details);
+        }
+
+        if (renderedBucketCount === 0) {
+          const emptyNote = document.createElement("p");
+          emptyNote.className = "muted";
+          emptyNote.textContent = "No tasks yet. Click + New Task to queue background work.";
+          nodes.push(emptyNote);
+        }
+        acc.replaceChildren(...nodes);
+
+        const ccHost = document.getElementById("overview-completed-coordinators");
+        ccHost.replaceChildren();
+        const completedCoords = state.completedCoordinators || [];
+        if (completedCoords.length > 0) {
+          const ccCard = document.createElement("div");
+          ccCard.className = "card";
+          const ch = document.createElement("h3");
+          ch.className = "card-title";
+          ch.style.marginBottom = "8px";
+          ch.textContent = "Archived Coordinator Sessions";
+          ccCard.appendChild(ch);
+          for (const c of completedCoords) {
+            const item = document.createElement("div");
+            item.className = "muted mono";
+            item.style.marginBottom = "4px";
+            item.textContent = `${c.conversation_id} • ${c.archived_at}${c.summary ? ` — ${c.summary}` : ""}`;
+            ccCard.appendChild(item);
+          }
+          ccHost.appendChild(ccCard);
+        }
+      }
+
+      function renderThreads(threads) {
+        const repoSelect = document.getElementById("filter-repo");
+        const prevRepo = repoSelect.value || "all";
+        const repos = state.repositories || [];
+        repoSelect.replaceChildren();
+        const optAll = document.createElement("option");
+        optAll.value = "all";
+        optAll.textContent = "All Repos";
+        repoSelect.appendChild(optAll);
+        for (const r of repos) {
+          const opt = document.createElement("option");
+          opt.value = r.repo_id;
+          opt.textContent = r.name;
+          repoSelect.appendChild(opt);
+        }
+        repoSelect.value = repos.some((r) => r.repo_id === prevRepo) ? prevRepo : "all";
+
+        const bucketFilter = document.getElementById("filter-bucket").value;
+        const repoFilter = repoSelect.value;
+        const roleFilter = document.getElementById("filter-role").value;
+        const modeFilter = document.getElementById("filter-mode").value;
+
+        const list = document.getElementById("threads-list");
+        list.replaceChildren();
+
+        const filtered = threads.filter((t) => {
+          if (bucketFilter === "all") {
+            if (t.ui_bucket === "resolved") return false;
+          } else if (t.ui_bucket !== bucketFilter) {
+            return false;
+          }
+          if (repoFilter !== "all" && t.repo_id !== repoFilter) return false;
+          if (roleFilter !== "all" && t.role !== roleFilter) return false;
+          if (modeFilter !== "all" && t.workspace_mode !== modeFilter) return false;
+          return true;
+        });
+
+        if (filtered.length === 0) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "No threads match the active filters.";
+          list.appendChild(p);
+          return;
+        }
+
+        const repoById = new Map(repos.map((r) => [r.repo_id, r.name]));
+        for (const t of filtered) {
+          const el = document.createElement("div");
+          el.className = "thread-item";
+          const head = document.createElement("div");
+          head.className = "row-between";
+          const title = document.createElement("strong");
+          title.textContent = t.title;
+          const badge = document.createElement("span");
+          badge.className = `badge ${t.ui_bucket === "working" ? "ok" : t.ui_bucket === "waiting_on_you" ? "warn" : ""}`;
+          badge.textContent = `${t.role} • ${t.ui_bucket}`;
+          head.append(title, badge);
+
+          const desc = document.createElement("div");
+          desc.className = "muted";
+          desc.style.marginTop = "4px";
+          desc.textContent = t.blocking_question || t.last_summary || t.description;
+
+          const meta = document.createElement("div");
+          meta.className = "muted mono";
+          meta.style.marginTop = "4px";
+          const repoLabel = t.repo_id && repoById.has(t.repo_id) ? ` | Repo: ${repoById.get(t.repo_id)}` : "";
+          meta.textContent = `ID: ${t.thread_id} | Mode: ${t.workspace_mode}${repoLabel}${t.branch_name ? ` | Branch: ${t.branch_name}` : ""}`;
+
+          el.append(head, desc, meta);
+
+          if (Array.isArray(t.live_telemetry) && t.live_telemetry.length > 0) {
+            const lastEvt = t.live_telemetry[t.live_telemetry.length - 1];
+            const tel = document.createElement("div");
+            tel.className = "muted mono";
+            tel.style.marginTop = "4px";
+            tel.textContent = `Latest activity: [${lastEvt.type}] ${lastEvt.tool || lastEvt.text || ""}`;
+            el.appendChild(tel);
+          }
+
+          const bar = document.createElement("div");
+          bar.style.cssText = "display:flex;gap:6px;margin-top:8px;flex-wrap:wrap";
+          if (t.ui_bucket === "suggested") {
+            const b1 = document.createElement("button");
+            b1.type = "button";
+            b1.className = "primary small";
+            b1.textContent = "▶ Start";
+            b1.addEventListener("click", async () => {
+              try {
+                await startSuggestedThreadFromUi(t);
+              } catch (e) { showToast(e.message, true); }
+            });
+            bar.appendChild(b1);
+          }
+          if (t.ui_bucket === "working") {
+            const bInt = document.createElement("button");
+            bInt.type = "button";
+            bInt.className = "danger small";
+            bInt.textContent = "⏸ Interrupt";
+            bInt.addEventListener("click", async () => {
+              try {
+                await api("/api/threads/action", { action: "interrupt", threadId: t.thread_id });
+                showToast(`Interrupted ${t.title}`);
+                await refreshState();
+              } catch (e) { showToast(e.message, true); }
+            });
+            bar.appendChild(bInt);
+          }
+          if (t.conversation_id) {
+            const bOpen = document.createElement("button");
+            bOpen.type = "button";
+            bOpen.className = "small";
+            bOpen.textContent = "↗ Open Thread";
+            bOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
+            bar.appendChild(bOpen);
+          }
+          const bInspect = document.createElement("button");
+          bInspect.type = "button";
+          bInspect.className = "small";
+          bInspect.textContent = "Inspect / Steer";
+          bInspect.addEventListener("click", () => openThreadDetailDialog(t));
+          bar.appendChild(bInspect);
+
+          if (t.ui_bucket !== "resolved") {
+            const bRes = document.createElement("button");
+            bRes.type = "button";
+            bRes.className = "small";
+            bRes.textContent = "✓ Mark Resolved";
+            bRes.addEventListener("click", async () => {
+              try {
+                await api("/api/threads/action", { action: "update", threadId: t.thread_id, uiBucket: "resolved" });
+                await refreshState();
+              } catch (e) { showToast(e.message, true); }
+            });
+            bar.appendChild(bRes);
+          }
+          el.appendChild(bar);
+          list.appendChild(el);
+        }
+      }
+
+      function renderLibrary(lib) {
+        if (!lib) return;
+        const modeBadge = document.getElementById("lib-mode-badge");
+        modeBadge.textContent = lib.mode === "pinned" ? "Inline Pinned (< Threshold)" : "Contextual Hybrid RAG";
+        modeBadge.className = `badge ${lib.mode === "pinned" ? "ok" : "warn"}`;
+
+        document.getElementById("lib-stats-line").textContent =
+          `Total tokens: ${lib.totalTokens.toLocaleString()} / ${lib.threshold.toLocaleString()} auto-pin threshold • Active model: ${lib.activeEmbeddingModel} • Embedded chunks: ${lib.embeddedChunkCount}/${lib.totalChunkCount}`;
+
+        const prog = document.getElementById("lib-token-progress");
+        const thr = Math.max(1, Number(lib.threshold || 15000));
+        const tot = Math.max(0, Number(lib.totalTokens || 0));
+        if (prog) {
+          prog.max = thr;
+          prog.value = Math.min(tot, thr);
+          prog.style.setProperty("--progress-bar-fill", tot < thr ? "var(--ph-ok)" : "var(--ph-warn)");
+        }
+        const progLbl = document.getElementById("lib-progress-label");
+        if (progLbl) {
+          progLbl.textContent = `Inline Pinning Budget (${tot.toLocaleString()} / ${thr.toLocaleString()} tokens — ${lib.mode === "pinned" ? "Pinned Inline" : "Contextual Hybrid RAG Active"})`;
+        }
+
+        const catFilter = document.getElementById("filter-lib-category")?.value || "all";
+        const items = (lib.items || []).filter((item) => catFilter === "all" || item.category === catFilter);
+
+        const list = document.getElementById("library-items-list");
+        list.replaceChildren();
+        if (items.length === 0) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "No assets in this category yet.";
+          list.appendChild(p);
+          return;
+        }
+        for (const item of items) {
+          const div = document.createElement("div");
+          div.className = "lib-item row-between";
+          const left = document.createElement("div");
+          const titleRow = document.createElement("div");
+          titleRow.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap";
+          const st = document.createElement("strong");
+          st.textContent = item.title;
+          titleRow.appendChild(st);
+          if (item.pdf_mode) {
+            const pdfBadge = document.createElement("span");
+            pdfBadge.className = `badge ${item.pdf_mode === "visual_and_text" ? "ok" : "warn"}`;
+            pdfBadge.textContent = item.pdf_mode === "visual_and_text" ? "PDF Visual+Text" : "PDF Text-Only";
+            titleRow.appendChild(pdfBadge);
+          }
+          const sub = document.createElement("div");
+          sub.className = "muted mono";
+          sub.textContent = `${item.category.toUpperCase()} • ${item.rel_path} • ${item.token_count} tok • ${item.index_status}`;
+          left.append(titleRow, sub);
+
+          const btnPrev = document.createElement("button");
+          btnPrev.type = "button";
+          btnPrev.className = "small";
+          btnPrev.textContent = "Preview";
+          btnPrev.addEventListener("click", async () => {
+            try {
+              const p = await api(`/api/library/preview?relPath=${encodeURIComponent(item.rel_path)}`);
+              document.getElementById("dlg-prev-title").textContent = item.title;
+              document.getElementById("dlg-prev-code").textContent = p.content;
+              openDialog("dlg-preview");
+            } catch (e) { showToast(e.message, true); }
+          });
+          div.append(left, btnPrev);
+          list.appendChild(div);
+        }
+      }
+
+      function updateMemInstructionsHints(text) {
+        const val = String(text || "");
+        const len = val.length;
+        const badge = document.getElementById("mem-inst-counter");
+        if (badge) {
+          badge.textContent = `${len.toLocaleString()} / 16,000`;
+          badge.className = `badge ${len > 16000 ? "err" : len > 8000 ? "warn" : "ok"}`;
+        }
+        const ed = document.getElementById("mem-instructions-editor");
+        if (ed) {
+          if (len > 16000) ed.setAttribute("aria-invalid", "true");
+          else ed.removeAttribute("aria-invalid");
+        }
+        const hint = document.getElementById("mem-inst-lint-hint");
+        if (hint) {
+          if (len > 16000) {
+            hint.style.color = "var(--ph-err)";
+            hint.textContent = `Exceeds 16,000-char Tier-1 injection limit by ${(len - 16000).toLocaleString()} chars — save will be rejected.`;
+          } else if (len > 8000) {
+            hint.style.color = "var(--ph-warn)";
+            hint.textContent = `Large instruction block (${len.toLocaleString()} / 16,000 chars) — consider moving detailed notes to MEMORY.md topic files.`;
+          } else if (len > 0) {
+            hint.style.color = "var(--ph-muted)";
+            hint.textContent = `Healthy size (${len.toLocaleString()} / 16,000 chars) — injected concisely on every turn.`;
+          } else {
+            hint.style.color = "var(--ph-muted)";
+            hint.textContent = "Optional standing rules (<= 16,000 chars) injected at Tier 1.";
+          }
+        }
+      }
+
+      function renderMemory(mem, cfg) {
+        if (!mem) return;
+        const memInstEl = document.getElementById("mem-instructions-editor");
+        if (memInstEl && document.activeElement !== memInstEl) {
+          memInstEl.value = cfg.instructions || "";
+        }
+        updateMemInstructionsHints(
+          memInstEl && document.activeElement === memInstEl ? memInstEl.value : (cfg.instructions || "")
+        );
+
+        const editor = document.getElementById("mem-index-editor");
+        if (document.activeElement !== editor) {
+          editor.value = mem.indexContent || "";
+        }
+        const meter = document.getElementById("mem-meter");
+        meter.textContent = `${mem.lineCount}/${cfg.memory.maxIndexLines} lines • ${mem.charCount}/${cfg.memory.maxIndexChars} chars`;
+        meter.className = `badge ${mem.lineCount > 180 ? "warn" : "ok"}`;
+
+        const acctEl = document.getElementById("acct-mem-editor");
+        if (acctEl && document.activeElement !== acctEl) {
+          acctEl.value = state.accountMemoryContent || "";
+        }
+        const acctEnabled = Boolean(cfg.memory?.useAccountMemory);
+        const acctToggle = document.getElementById("mem-toggle-acct-mem");
+        if (acctToggle) {
+          acctToggle.checked = acctEnabled;
+        }
+        const acctBadge = document.getElementById("acct-mem-isolation-badge");
+        if (acctBadge) {
+          acctBadge.textContent = acctEnabled ? "Enabled in Context" : "Isolated (Off)";
+          acctBadge.className = `badge ${acctEnabled ? "warn" : "ok"}`;
+        }
+
+        const tList = document.getElementById("memory-topics-list");
+        tList.replaceChildren();
+        if ((mem.topics || []).length === 0) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "No topic files yet.";
+          tList.appendChild(p);
+          return;
+        }
+        for (const t of mem.topics) {
+          const raw = String(t.content || "");
+          const summaryMatch = raw.match(/^>\s*Summary:\s*(.+)$/m);
+          const byThreadMatch = raw.match(/^>\s*Updated-By-Thread:\s*(.+)$/m);
+          const updatedAtMatch = raw.match(/^>\s*Updated-At:\s*(.+)$/m);
+          const provenanceText = byThreadMatch
+            ? `Updated by thread ${byThreadMatch[1].trim()}`
+            : updatedAtMatch
+              ? `Updated ${updatedAtMatch[1].trim()}`
+              : "";
+
+          const row = document.createElement("div");
+          row.className = "lib-item row-between";
+          const info = document.createElement("div");
+          const name = document.createElement("span");
+          name.className = "mono";
+          name.style.fontWeight = "600";
+          name.textContent = `topics/${t.filename}`;
+          info.appendChild(name);
+          if (summaryMatch) {
+            const sumEl = document.createElement("div");
+            sumEl.className = "muted";
+            sumEl.textContent = summaryMatch[1].trim();
+            info.appendChild(sumEl);
+          }
+          if (provenanceText) {
+            const provEl = document.createElement("div");
+            provEl.className = "muted mono";
+            provEl.textContent = provenanceText;
+            info.appendChild(provEl);
+          }
+
+          const btns = document.createElement("div");
+          btns.style.cssText = "display:flex;gap:6px";
+          const bView = document.createElement("button");
+          bView.type = "button";
+          bView.className = "small";
+          bView.textContent = "View";
+          bView.addEventListener("click", () => {
+            document.getElementById("dlg-prev-title").textContent = t.filename;
+            document.getElementById("dlg-prev-code").textContent = t.content;
+            openDialog("dlg-preview");
+          });
+          const bDel = document.createElement("button");
+          bDel.type = "button";
+          bDel.className = "danger small";
+          bDel.textContent = "Delete";
+          bDel.addEventListener("click", async () => {
+            try {
+              await api("/api/memory/delete-topic", { topicSlug: t.slug });
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          btns.append(bView, bDel);
+          row.append(info, btns);
+          tList.appendChild(row);
+        }
+      }
+
+      function renderRepositoriesList(rEl, repos) {
+        if (!rEl) return;
+        rEl.replaceChildren();
+        if (!repos || repos.length === 0) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "No Git repositories bound yet.";
+          rEl.appendChild(p);
+          return;
+        }
+        for (const r of repos) {
+          const row = document.createElement("div");
+          row.className = "lib-item row-between";
+          const info = document.createElement("div");
+          const st = document.createElement("strong");
+          st.textContent = `${r.name} (${r.default_branch})`;
+          const pth = document.createElement("div");
+          pth.className = "muted mono";
+          pth.textContent = r.local_path;
+          info.append(st, pth);
+
+          const bUnbind = document.createElement("button");
+          bUnbind.type = "button";
+          bUnbind.className = "danger small";
+          bUnbind.textContent = "Unbind";
+          bUnbind.addEventListener("click", async () => {
+            try {
+              await api("/api/repos/unbind", { repoId: r.repo_id });
+              showToast(`Unbound repository ${r.name}`);
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          row.append(info, bUnbind);
+          rEl.appendChild(row);
+        }
+      }
+
+      function renderPrs(repos, prs) {
+        renderRepositoriesList(document.getElementById("repos-list"), repos);
+
+        const list = document.getElementById("prs-list");
+        list.replaceChildren();
+        if (prs.length === 0) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = "No Pull Requests tracked yet. Worker Threads register PRs via update_thread_state.";
+          list.appendChild(p);
+          return;
+        }
+        prs.forEach((pr, idx) => {
+          const card = document.createElement("div");
+          card.className = "pr-item";
+          const top = document.createElement("div");
+          top.className = "row-between";
+          const st = document.createElement("strong");
+          st.textContent = `#${pr.pr_number} ${pr.title}`;
+          const badges = document.createElement("div");
+          badges.style.cssText = "display:flex;gap:4px;align-items:center;flex-wrap:wrap";
+          const rankBadge = document.createElement("span");
+          rankBadge.className = "badge";
+          rankBadge.textContent = `Merge #${pr.merge_order_rank || idx + 1}`;
+          const ci = document.createElement("span");
+          ci.className = `badge ${pr.ci_status === "passing" ? "ok" : pr.ci_status === "pending" ? "warn" : "err"}`;
+          ci.textContent = `CI: ${pr.ci_status} • ${pr.review_decision}`;
+          badges.append(rankBadge, ci);
+          if (Number(pr.additions || 0) > 0 || Number(pr.deletions || 0) > 0) {
+            const diffBadge = document.createElement("span");
+            diffBadge.className = "badge mono";
+            diffBadge.textContent = `+${Number(pr.additions || 0)} / -${Number(pr.deletions || 0)}`;
+            badges.appendChild(diffBadge);
+          }
+          top.append(st, badges);
+
+          const bottom = document.createElement("div");
+          bottom.className = "row-between";
+          bottom.style.marginTop = "6px";
+          const branch = document.createElement("span");
+          branch.className = "muted mono";
+          branch.textContent = `${pr.head_branch} → ${pr.base_branch} (Auto-Fix strikes: ${pr.autofix_attempts}/3)`;
+
+          const controls = document.createElement("div");
+          controls.style.cssText = "display:flex;align-items:center;gap:8px;flex-wrap:wrap";
+
+          const bUp = document.createElement("button");
+          bUp.type = "button";
+          bUp.className = "small";
+          bUp.textContent = "↑";
+          bUp.title = "Move earlier in merge order";
+          bUp.disabled = idx === 0;
+          bUp.addEventListener("click", async () => {
+            const ids = prs.map((x) => x.pr_id);
+            [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
+            try {
+              await api("/api/prs/reorder", { orderedPrIds: ids });
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+
+          const bDown = document.createElement("button");
+          bDown.type = "button";
+          bDown.className = "small";
+          bDown.textContent = "↓";
+          bDown.title = "Move later in merge order";
+          bDown.disabled = idx === prs.length - 1;
+          bDown.addEventListener("click", async () => {
+            const ids = prs.map((x) => x.pr_id);
+            [ids[idx], ids[idx + 1]] = [ids[idx + 1], ids[idx]];
+            try {
+              await api("/api/prs/reorder", { orderedPrIds: ids });
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+
+          const chkWrap = document.createElement("div");
+          chkWrap.style.cssText = "display:flex;align-items:center;gap:5px;font-size:12px";
+          const chk = document.createElement("input");
+          chk.type = "checkbox";
+          chk.id = `pr-af-${pr.pr_id}`;
+          chk.checked = Boolean(pr.autofix_enabled);
+          chk.addEventListener("change", async () => {
+            try {
+              await api("/api/prs/toggle-autofix", { prId: pr.pr_id, enabled: chk.checked });
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          const lbl = document.createElement("label");
+          lbl.htmlFor = chk.id;
+          lbl.textContent = "Auto-Fix CI";
+          chkWrap.append(chk, lbl);
+
+          controls.append(bUp, bDown, chkWrap);
+          bottom.append(branch, controls);
+          card.append(top, bottom);
+          list.appendChild(card);
+        });
+      }
+
+      function renderDiagnosticsSections(diagnostics) {
+        const pList = document.getElementById("plugins-list");
+        if (pList) {
+          pList.replaceChildren();
+          const plugins = diagnostics?.plugins || [];
+          if (plugins.length === 0) {
+            const p = document.createElement("p");
+            p.className = "muted";
+            p.textContent = "No plugins discovered.";
+            pList.appendChild(p);
+          } else {
+            for (const pl of plugins) {
+              const row = document.createElement("div");
+              row.className = "lib-item row-between";
+              const info = document.createElement("div");
+              const title = document.createElement("strong");
+              title.textContent = `${pl.name} v${pl.version}`;
+              info.appendChild(title);
+              if (pl.description) {
+                const sub = document.createElement("div");
+                sub.className = "muted";
+                sub.textContent = pl.description;
+                info.appendChild(sub);
+              }
+              if (pl.customizationUri && String(pl.customizationUri).startsWith("customization://")) {
+                const uriLink = document.createElement("a");
+                uriLink.className = "mono";
+                uriLink.href = pl.customizationUri;
+                uriLink.textContent = pl.customizationUri;
+                uriLink.style.cssText = "display:inline-block;margin-top:2px;color:var(--ph-accent);text-decoration:underline;cursor:pointer";
+                uriLink.addEventListener("click", async (ev) => {
+                  ev.preventDefault();
+                  if (window.sidecar?.ui && typeof window.sidecar.ui.openUri === "function") {
+                    try {
+                      await window.sidecar.ui.openUri(pl.customizationUri);
+                      return;
+                    } catch {}
+                  }
+                  try {
+                    if (navigator.clipboard?.writeText) {
+                      await navigator.clipboard.writeText(pl.customizationUri);
+                      showToast(`Copied ${pl.customizationUri}`);
+                      return;
+                    }
+                  } catch {}
+                  showToast(`Open in Antigravity: ${pl.customizationUri}`);
+                });
+                info.appendChild(uriLink);
+              }
+              const badge = document.createElement("span");
+              badge.className = `badge ${pl.enabled ? "ok" : "warn"}`;
+              badge.textContent = pl.enabled ? "enabled" : "disabled";
+              row.append(info, badge);
+              pList.appendChild(row);
+            }
+          }
+        }
+
+        const cList = document.getElementById("connectors-list");
+        if (cList) {
+          cList.replaceChildren();
+          const conn = diagnostics?.connectors;
+          if (!conn) {
+            const p = document.createElement("p");
+            p.className = "muted";
+            p.textContent = "Diagnostics unavailable.";
+            cList.appendChild(p);
+          } else {
+            const rows = [
+              ["MCP Server", conn.mcpServer?.ok, conn.mcpServer?.label || "agy_projects_mcp"],
+              ["GitHub CLI (gh)", conn.githubCli?.ok, conn.githubCli?.summary || (conn.githubCli?.installed ? "Installed" : "Not found")],
+              ["Google Drive Skill", conn.googleDrive?.ok, conn.googleDrive?.ok ? "gdrive SKILL.md available" : "gdrive plugin not installed"],
+              ["Contextual RAG Python Env", conn.ragVenv?.ok, conn.ragVenv?.pythonPath || "Not ready"],
+              ["Headless SDK Auth", conn.headlessSdk?.ok, conn.headlessSdk?.summary || "Set GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1)"],
+              ["Plugin OAuth Accounts", conn.pluginAccounts?.ok, conn.pluginAccounts?.summary || "No OAuth account files detected"]
+            ];
+            for (const [label, ok, detail] of rows) {
+              const item = document.createElement("div");
+              item.className = "lib-item row-between";
+              const left = document.createElement("div");
+              const st = document.createElement("strong");
+              st.textContent = label;
+              const sub = document.createElement("div");
+              sub.className = "muted mono";
+              sub.textContent = String(detail || "");
+              left.append(st, sub);
+              const b = document.createElement("span");
+              b.className = `badge ${ok ? "ok" : "warn"}`;
+              b.textContent = ok ? "Connected" : "Needs Setup";
+              item.append(left, b);
+              cList.appendChild(item);
+            }
+          }
+        }
+
+        const sRefHost = document.getElementById("secret-refs-status");
+        if (sRefHost) {
+          sRefHost.replaceChildren();
+          for (const sr of diagnostics?.secretRefs || []) {
+            const b = document.createElement("span");
+            b.className = `badge ${sr.present ? "ok" : "err"}`;
+            b.textContent = `${sr.name}: ${sr.present ? "present" : "missing"}`;
+            sRefHost.appendChild(b);
+          }
+        }
+      }
+
+      function renderSettings(cfg, routines, snapshots, diagnostics) {
+        const setIfIdle = (id, val) => {
+          const el = document.getElementById(id);
+          if (el && document.activeElement !== el) el.value = val ?? "";
+        };
+        const setSelectIfIdle = (id, val) => {
+          const el = document.getElementById(id);
+          if (!el || document.activeElement === el) return;
+          const v = val || "inherit";
+          if (!Array.from(el.options).some((o) => o.value === v)) {
+            const opt = document.createElement("option");
+            opt.value = v;
+            opt.textContent = v;
+            el.appendChild(opt);
+          }
+          el.value = v;
+        };
+
+        // 1. General & Models
+        setIfIdle("set-name", cfg.name);
+        setIfIdle("set-goal", cfg.goal);
+        setSelectIfIdle("set-coordinator-model", cfg.models?.coordinatorModel || "inherit");
+        setSelectIfIdle("set-default-model", cfg.models?.defaultThreadModel || "inherit");
+        const ro = cfg.models?.roleOverrides || {};
+        setSelectIfIdle("set-role-explorer", ro.explorer || "inherit");
+        setSelectIfIdle("set-role-implementer", ro.implementer || "inherit");
+        setSelectIfIdle("set-role-verifier", ro.verifier || "inherit");
+        setSelectIfIdle("set-role-pr-fixer", ro["pr-fixer"] || ro.pr_fixer || "inherit");
+
+        setIfIdle("set-max-threads", cfg.orchestration?.maxConcurrentThreads ?? 5);
+        setIfIdle("set-max-daily", cfg.orchestration?.maxNewThreadsPerDay ?? 200);
+        setIfIdle("set-idle-days", cfg.orchestration?.idleAutoResolveDays ?? 7);
+        setIfIdle("set-ws-mode", cfg.orchestration?.defaultWorkspaceMode || "share");
+        document.getElementById("set-require-approval").checked = cfg.orchestration?.requireApprovalBeforeSpawn !== false;
+
+        const btnSetPause = document.getElementById("btn-set-pause-resume");
+        if (btnSetPause) {
+          if (cfg.status === "archived") {
+            btnSetPause.hidden = true;
+            btnSetPause.disabled = true;
+          } else {
+            btnSetPause.hidden = false;
+            btnSetPause.disabled = false;
+            btnSetPause.textContent = cfg.status === "paused" ? "Resume Project" : "Pause Project";
+          }
+        }
+
+        const btnArch = document.getElementById("btn-archive-project");
+        if (btnArch) {
+          btnArch.textContent = cfg.status === "archived" ? "↺ Unarchive Project" : "Archive Project";
+          btnArch.className = cfg.status === "archived" ? "primary small" : "danger small";
+        }
+
+        // 2. Memory & Contextual RAG
+        setIfIdle("set-instructions", cfg.instructions);
+        document.getElementById("inst-counter").textContent = `${(cfg.instructions || "").length.toLocaleString()} / 16,000`;
+        document.getElementById("set-acct-mem").checked = Boolean(cfg.memory?.useAccountMemory);
+        setIfIdle("set-max-mem-lines", cfg.memory?.maxIndexLines ?? 200);
+        setIfIdle("set-pin-threshold", cfg.memory?.autoPinLibraryTokenThreshold ?? 15000);
+        setIfIdle("set-emb-provider", cfg.memory?.embeddingProvider);
+        setIfIdle("set-cloud-model", cfg.memory?.cloudEmbeddingModel);
+        setIfIdle("set-header-mode", cfg.memory?.contextualHeaderMode || "structural_offline");
+        document.getElementById("set-paid-tier").checked = Boolean(cfg.memory?.cloudPaidTierConfirmed);
+
+        // 3. Environment & Repositories
+        renderRepositoriesList(document.getElementById("settings-repos-list"), state.repositories || []);
+        setIfIdle("set-sandbox-mode", cfg.environment?.sandboxMode || "inherit");
+        setIfIdle("set-network-policy", cfg.environment?.networkPolicy || "inherit");
+        setIfIdle("set-setup-cmd", cfg.environment?.setupCommand || "");
+        const envVarsText = Object.entries(cfg.environment?.envVars || {})
+          .map(([k, v]) => `${k}=${v}`)
+          .join("\n");
+        setIfIdle("set-env-vars", envVarsText);
+        const secretRefsText = Array.isArray(cfg.environment?.secretRefs)
+          ? cfg.environment.secretRefs.join(", ")
+          : "";
+        setIfIdle("set-secret-refs", secretRefsText);
+
+        // 4 & 5. Plugins, Connectors & Secret Ref Badges
+        renderDiagnosticsSections(diagnostics);
+
+        const rList = document.getElementById("routines-list");
+        rList.replaceChildren();
+        for (const r of routines) {
+          const div = document.createElement("div");
+          div.className = "lib-item row-between";
+          const txt = document.createElement("div");
+          const titleRow = document.createElement("div");
+          titleRow.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap";
+          const s = document.createElement("strong");
+          s.textContent = `${r.name} (${r.cron_expr})`;
+          titleRow.appendChild(s);
+          if (r.last_error) {
+            const errBadge = document.createElement("span");
+            errBadge.className = "badge err";
+            errBadge.textContent = `Failed (${r.consecutive_failures || 1}x)`;
+            titleRow.appendChild(errBadge);
+          }
+          const m = document.createElement("div");
+          m.className = "muted mono";
+          m.textContent = `Role: ${r.target_role} • Next: ${r.next_run_at || "disabled"}`;
+          txt.append(titleRow, m);
+          if (r.last_error) {
+            const errLine = document.createElement("div");
+            errLine.className = "muted";
+            errLine.style.color = "var(--ph-err)";
+            errLine.style.marginTop = "2px";
+            errLine.textContent = r.last_error;
+            txt.appendChild(errLine);
+          }
+
+          const btns = document.createElement("div");
+          btns.style.cssText = "display:flex;gap:6px";
+          const bRun = document.createElement("button");
+          bRun.type = "button";
+          bRun.className = "small";
+          bRun.textContent = "▶ Run Now";
+          bRun.addEventListener("click", async () => {
+            try {
+              await api("/api/routines/run-now", { routineId: r.routine_id });
+              showToast(`Triggered ${r.name}`);
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          const bDel = document.createElement("button");
+          bDel.type = "button";
+          bDel.className = "danger small";
+          bDel.textContent = "Delete";
+          bDel.addEventListener("click", async () => {
+            try {
+              await api("/api/routines/delete", { routineId: r.routine_id });
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          btns.append(bRun, bDel);
+          div.append(txt, btns);
+          rList.appendChild(div);
+        }
+
+        // 6. Sharing, RBAC & Point-in-Time Snapshots
+        const rawVis = cfg.sharing?.visibility || "private";
+        setIfIdle("set-visibility", rawVis === "team" || rawVis === "public" ? "organization" : rawVis);
+        const mList = document.getElementById("members-list");
+        mList.replaceChildren();
+        const roleLabels = { editor: "Can edit", viewer: "Can view", owner: "Owner" };
+        const members = Array.isArray(cfg.sharing?.members) ? cfg.sharing.members : [];
+        for (let idx = 0; idx < members.length; idx++) {
+          const mem = members[idx];
+          const row = document.createElement("div");
+          row.className = "lib-item row-between";
+          const left = document.createElement("span");
+          left.className = "mono";
+          left.textContent = `${mem.principal} (${roleLabels[mem.role] || mem.role})`;
+          row.appendChild(left);
+          if (members.length > 1) {
+            const bRem = document.createElement("button");
+            bRem.type = "button";
+            bRem.className = "danger small";
+            bRem.textContent = "Remove";
+            bRem.addEventListener("click", async () => {
+              const nextMembers = members.filter((_, i) => i !== idx);
+              try {
+                await api("/api/settings/update", {
+                  sharing: { ...(cfg.sharing || {}), members: nextMembers }
+                });
+                await refreshState();
+              } catch (e) { showToast(e.message, true); }
+            });
+            row.appendChild(bRem);
+          }
+          mList.appendChild(row);
+        }
+
+        const feedCount = snapshots.filter((s) => Boolean(s.published_to_feed)).length;
+        const feedBadge = document.getElementById("snapshots-feed-badge");
+        if (feedBadge) {
+          feedBadge.textContent = `${feedCount} in Activity Feed`;
+          feedBadge.className = `badge ${feedCount > 0 ? "ok" : ""}`;
+        }
+
+        const feedOnly = Boolean(document.getElementById("chk-feed-only")?.checked);
+        const visibleSnaps = feedOnly ? snapshots.filter((s) => Boolean(s.published_to_feed)) : snapshots;
+        const sList = document.getElementById("snapshots-list");
+        sList.replaceChildren();
+        if (visibleSnaps.length === 0) {
+          const p = document.createElement("p");
+          p.className = "muted";
+          p.textContent = feedOnly ? "No snapshots published to the feed yet." : "No snapshots created yet.";
+          sList.appendChild(p);
+        }
+        for (const s of visibleSnaps) {
+          const div = document.createElement("div");
+          div.className = "lib-item row-between";
+          const info = document.createElement("div");
+          const titleRow = document.createElement("div");
+          titleRow.style.cssText = "display:flex;align-items:center;gap:6px;flex-wrap:wrap";
+          const st = document.createElement("strong");
+          st.textContent = s.title;
+          titleRow.appendChild(st);
+          if (s.published_to_feed) {
+            const fBadge = document.createElement("span");
+            fBadge.className = "badge ok";
+            fBadge.textContent = "Feed";
+            titleRow.appendChild(fBadge);
+          }
+          const meta = document.createElement("div");
+          meta.className = "muted mono";
+          meta.textContent = `Cutoff step #${s.max_step_index} • ${s.created_at}`;
+          info.append(titleRow, meta);
+
+          const btns = document.createElement("div");
+          btns.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
+          const bPrev = document.createElement("button");
+          bPrev.type = "button";
+          bPrev.className = "small";
+          bPrev.textContent = "Preview";
+          bPrev.addEventListener("click", async () => {
+            try {
+              const prev = await api(`/api/snapshots/preview?snapshotId=${encodeURIComponent(s.snapshot_id)}`);
+              document.getElementById("dlg-prev-title").textContent = prev.title || s.title;
+              const turns = prev.jsonBundle?.turns || [];
+              const textLines = [
+                `Snapshot ID: ${prev.snapshotId} | Cutoff Step: #${prev.maxStepIndex} | Published to Feed: ${prev.publishedToFeed}`,
+                `Privacy: ${prev.jsonBundle?.privacyNotice || "Sanitized point-in-time snapshot"}`,
+                "",
+                ...turns.map((t) => `[Step ${t.stepIndex}] ${String(t.role || "").toUpperCase()}:\n${t.content}`)
+              ];
+              document.getElementById("dlg-prev-code").textContent = textLines.join("\n\n");
+              openDialog("dlg-preview");
+            } catch (e) { showToast(e.message, true); }
+          });
+
+          const bUpd = document.createElement("button");
+          bUpd.type = "button";
+          bUpd.className = "small";
+          bUpd.textContent = "↻ Update Cutoff";
+          bUpd.addEventListener("click", async () => {
+            try {
+              const updated = await api("/api/snapshots/update", { snapshotId: s.snapshot_id });
+              showToast(`Refreshed snapshot cutoff to step #${updated.maxStepIndex}`);
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+
+          const bRev = document.createElement("button");
+          bRev.type = "button";
+          bRev.className = "danger small";
+          bRev.textContent = "Revoke";
+          bRev.addEventListener("click", async () => {
+            try {
+              await api("/api/snapshots/revoke", { snapshotId: s.snapshot_id });
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+
+          btns.append(bPrev, bUpd, bRev);
+          div.append(info, btns);
+          sList.appendChild(div);
+        }
+      }
+
+      // ---------- Event Listeners & Form Registrations ----------
+      function onId(id, eventName, handler) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener(eventName, handler);
+      }
+
+      onId("project-switcher", "change", async (e) => {
+        if (!e.target.value) return;
+        try {
+          await api("/api/projects/select", { projectId: e.target.value });
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("chk-show-archived", "change", () => renderAll());
+
+      onId("ov-goal-input", "focus", () => syncGoalSaveVisibility());
+      onId("ov-goal-input", "input", (e) => {
+        draftGoalText = e.target.value;
+        syncGoalSaveVisibility();
+      });
+      onId("ov-goal-input", "blur", () => syncGoalSaveVisibility());
+
+      onId("btn-ov-new-task", "click", () => {
+        openDialog("dlg-propose-thread");
+      });
+
+      registerFormHandler("form-inline-goal", async () => {
+        const nextGoal = document.getElementById("ov-goal-input").value.trim();
+        await api("/api/settings/update", { goal: nextGoal });
+        draftGoalText = null;
+        showToast("Project goal updated");
+        await refreshState();
+        syncGoalSaveVisibility();
+      });
+
+      onId("btn-star", "click", async () => {
+        if (!state.config) return;
+        try {
+          await api("/api/projects/lifecycle", { starred: !state.config.starred });
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      async function toggleProjectPauseResume() {
+        if (!state.config || state.config.status === "archived") return;
+        const next = state.config.status === "active" ? "paused" : "active";
+        try {
+          await api("/api/projects/lifecycle", { status: next });
+          showToast(`Project ${next}`);
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      }
+      onId("btn-pause-resume", "click", toggleProjectPauseResume);
+      onId("btn-set-pause-resume", "click", toggleProjectPauseResume);
+
+      onId("btn-archive-project", "click", async () => {
+        if (!state.config) return;
+        const next = state.config.status === "archived" ? "active" : "archived";
+        try {
+          await api("/api/projects/lifecycle", { status: next });
+          showToast(next === "archived" ? "Project archived" : "Project unarchived");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-new-project", "click", openNewProjectDialog);
+
+      onId("btn-open-coordinator", "click", openCoordinatorChat);
+
+      onId("btn-rollover-coordinator", "click", () => {
+        if (!state.config) return;
+        const currId = state.config.coordinatorConversationId || "none";
+        const hasChk = state.wrapupCheckpoint ? "Wrap-up checkpoint found and ready to hydrate into next Coordinator." : "No wrapup_checkpoint.md found yet (optional: ask Coordinator to save_wrapup_checkpoint first).";
+        document.getElementById("ro-status-text").textContent = `Current Coordinator: ${currId}. ${hasChk}`;
+        openDialog("dlg-rollover");
+      });
+
+      registerFormHandler("form-rollover", async () => {
+        const summary = document.getElementById("ro-summary").value.trim();
+        let newConvId = document.getElementById("ro-new-conv").value.trim();
+        if (!newConvId && window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
+          try {
+            const handoff = state.wrapupCheckpoint
+              ? `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}.\n\n${state.wrapupCheckpoint}`
+              : `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}. Call get_project_overview first.`;
+            const started = await window.sidecar.agent.startConversation(handoff, `${state.config.name} Coordinator`);
+            newConvId = started?.conversationId || started?.response?.conversationId || "";
+          } catch {}
+        }
+        await api("/api/projects/rollover", {
+          ...(newConvId ? { newConversationId: newConvId } : {}),
+          summary
+        });
+        closeDialog("dlg-rollover");
+        document.getElementById("ro-summary").value = "";
+        document.getElementById("ro-new-conv").value = "";
+        showToast(newConvId ? `Rolled over Coordinator to ${newConvId}` : "Previous Coordinator archived; ready to bind new chat");
+        if (newConvId) openConversationInHost(newConvId, "Coordinator");
+        await refreshState();
+      });
+
+      onId("btn-td-open-conv", "click", () => {
+        const t = (state.threads || []).find((x) => x.thread_id === inspectedThreadId);
+        if (t?.conversation_id) openConversationInHost(t.conversation_id, t.title);
+      });
+
+      onId("steer-input", "keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (e.isComposing || e.keyCode === 229) return;
+          executeFormSubmission(document.getElementById("form-steer-thread"));
+        }
+      });
+
+      registerFormHandler("form-steer-thread", async () => {
+        const tid = document.getElementById("steer-thread-id").value;
+        const msg = document.getElementById("steer-input").value.trim();
+        const thread = (state.threads || []).find((x) => x.thread_id === tid);
+        if (!thread) throw new Error("Selected thread is no longer present.");
+        await sendThreadReplyOrSteer(thread, msg);
+        document.getElementById("steer-input").value = "";
+        closeDialog("dlg-thread-detail");
+      });
+
+      for (const fid of ["filter-bucket", "filter-repo", "filter-role", "filter-mode"]) {
+        onId(fid, "change", () => renderThreads(state.threads || []));
+      }
+
+      onId("btn-start-all", "click", async () => {
+        try {
+          await startSuggestedBatchFromUi({ mode: "all" });
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-propose-thread", "click", () => {
+        openDialog("dlg-propose-thread");
+      });
+
+      registerFormHandler("form-propose-thread", async () => {
+        await api("/api/threads/propose", {
+          proposals: [{
+            title: document.getElementById("pt-title").value.trim(),
+            role: document.getElementById("pt-role").value,
+            description: document.getElementById("pt-desc").value.trim()
+          }]
+        });
+        closeDialog("dlg-propose-thread");
+        showToast("Thread added to Suggested");
+        await refreshState();
+      });
+
+      // Library Drag-and-Drop (Recursive Folder Support) & Local Path Ingest
+      async function readAllDirectoryEntries(dirReader) {
+        const entries = [];
+        while (true) {
+          const batch = await new Promise((resolve, reject) => dirReader.readEntries(resolve, reject));
+          if (!batch || batch.length === 0) break;
+          entries.push(...batch);
+        }
+        return entries;
+      }
+
+      async function traverseDropEntry(entry, outFiles) {
+        if (!entry) return;
+        if (entry.name === ".git" || entry.name === "node_modules") return;
+        if (entry.isFile) {
+          const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+          if (file) outFiles.push(file);
+        } else if (entry.isDirectory) {
+          const children = await readAllDirectoryEntries(entry.createReader());
+          for (const child of children) {
+            await traverseDropEntry(child, outFiles);
+          }
+        }
+      }
+
+      const dropzone = document.getElementById("upload-dropzone");
+      const fileInput = document.getElementById("file-input");
+      if (dropzone && fileInput) {
+        dropzone.addEventListener("click", () => fileInput.click());
+        dropzone.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            fileInput.click();
+          }
+        });
+        dropzone.addEventListener("dragover", (e) => { e.preventDefault(); dropzone.classList.add("dragover"); });
+        dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+        dropzone.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          dropzone.classList.remove("dragover");
+          const entries = Array.from(e.dataTransfer?.items || [])
+            .map((item) => (typeof item.webkitGetAsEntry === "function" ? item.webkitGetAsEntry() : null))
+            .filter(Boolean);
+          const fallbackFiles = Array.from(e.dataTransfer?.files || []);
+          if (entries.length > 0) {
+            const collected = [];
+            for (const entry of entries) {
+              await traverseDropEntry(entry, collected);
+            }
+            await handleFiles(collected.length > 0 ? collected : fallbackFiles);
+          } else {
+            await handleFiles(fallbackFiles);
+          }
+        });
+        fileInput.addEventListener("change", async () => {
+          await handleFiles(fileInput.files);
+          fileInput.value = "";
+        });
+      }
+
+      async function handleFiles(fileList) {
+        if (!fileList || fileList.length === 0) return;
+        const allowLargeLocal = Boolean(document.getElementById("chk-allow-large-local")?.checked);
+        for (const file of fileList) {
+          try {
+            const buf = await file.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let binary = "";
+            for (let i = 0; i < bytes.byteLength; i += 8192) {
+              binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+            }
+            await api("/api/library/upload", {
+              filename: file.name,
+              base64Content: btoa(binary),
+              category: "input",
+              sourceType: "upload",
+              allowLargeLocal
+            });
+            showToast(`Ingested ${file.name}`);
+          } catch (err) {
+            showToast(err.message, true);
+          }
+        }
+        await refreshState();
+      }
+
+      registerFormHandler("form-ingest-path", async () => {
+        const sourcePath = document.getElementById("lib-local-path").value.trim();
+        const allowLargeLocal = Boolean(document.getElementById("chk-allow-large-local")?.checked);
+        await api("/api/library/upload", {
+          sourcePath,
+          category: "input",
+          sourceType: "local_file",
+          allowLargeLocal
+        });
+        document.getElementById("lib-local-path").value = "";
+        showToast("Ingested local file into Project Library");
+        await refreshState();
+      });
+
+      onId("filter-lib-category", "change", () => renderLibrary(state.library));
+
+      async function triggerLibraryReindex() {
+        try {
+          await api("/api/library/reindex", {});
+          showToast("Background re-indexing started");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      }
+      onId("btn-reindex", "click", triggerLibraryReindex);
+      onId("btn-set-reindex", "click", triggerLibraryReindex);
+
+      registerFormHandler("form-rag-search", async () => {
+        const q = document.getElementById("rag-query").value.trim();
+        if (!q) return;
+        const cat = document.getElementById("filter-lib-category")?.value || "all";
+        const box = document.getElementById("rag-results");
+        box.replaceChildren();
+        const res = await api("/api/library/search", {
+          query: q,
+          categoryFilter: cat !== "all" ? cat : null,
+          topK: 6
+        });
+        const modeLine = document.createElement("div");
+        modeLine.className = "muted mono";
+        modeLine.style.marginBottom = "6px";
+        modeLine.textContent = `Mode: ${res.retrievalMode} • Hits: ${res.results.length}`;
+        box.appendChild(modeLine);
+
+        for (const hit of res.results) {
+          const card = document.createElement("div");
+          card.className = "lib-item";
+          const top = document.createElement("div");
+          top.className = "row-between";
+          const t = document.createElement("strong");
+          t.textContent = `${hit.title} (L${hit.startLine}-L${hit.endLine})`;
+          const right = document.createElement("div");
+          right.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap";
+          const sc = document.createElement("span");
+          sc.className = "badge";
+          sc.textContent = `RRF ${hit.rrfScore} (BM25 #${hit.bm25Rank || "-"}, Vec #${hit.vectorRank || "-"})`;
+          const bPrevHit = document.createElement("button");
+          bPrevHit.type = "button";
+          bPrevHit.className = "small";
+          bPrevHit.textContent = `Preview L${hit.startLine}–L${hit.endLine}`;
+          bPrevHit.addEventListener("click", async () => {
+            try {
+              const p = await api(`/api/library/preview?relPath=${encodeURIComponent(hit.relativePath)}`);
+              const lines = String(p.content || "").split(/\r?\n/);
+              const lo = Math.max(1, Number(hit.startLine || 1) - 5);
+              const hi = Math.min(lines.length, Number(hit.endLine || lines.length) + 5);
+              const numbered = [];
+              for (let ln = lo; ln <= hi; ln++) {
+                const marker = ln >= hit.startLine && ln <= hit.endLine ? ">" : " ";
+                numbered.push(`${marker} ${String(ln).padStart(4, " ")} | ${lines[ln - 1] ?? ""}`);
+              }
+              document.getElementById("dlg-prev-title").textContent = `${hit.title} (L${hit.startLine}–L${hit.endLine})`;
+              document.getElementById("dlg-prev-code").textContent = numbered.join("\n");
+              openDialog("dlg-preview");
+            } catch (err) { showToast(err.message, true); }
+          });
+          right.append(sc, bPrevHit);
+          top.append(t, right);
+
+          if (hit.contextPrefix) {
+            const ctx = document.createElement("div");
+            ctx.className = "muted mono";
+            ctx.style.marginTop = "4px";
+            ctx.textContent = hit.contextPrefix;
+            card.append(top, ctx);
+          } else {
+            card.appendChild(top);
+          }
+
+          const sn = document.createElement("div");
+          sn.className = "mono";
+          sn.style.marginTop = "4px";
+          renderSafeSnippet(sn, hit.snippet.slice(0, 260));
+          card.appendChild(sn);
+          box.appendChild(card);
+        }
+      });
+
+      onId("mem-instructions-editor", "input", (e) => {
+        updateMemInstructionsHints(e.target.value);
+      });
+
+      onId("mem-toggle-acct-mem", "change", async (e) => {
+        const nextVal = Boolean(e.target.checked);
+        try {
+          await api("/api/settings/update", {
+            memory: {
+              ...(state.config?.memory || {}),
+              useAccountMemory: nextVal
+            }
+          });
+          showToast(nextVal ? "Account Memory enabled for this project" : "Account Memory isolated (off)");
+          await refreshState();
+        } catch (err) {
+          e.target.checked = !nextVal;
+          showToast(err.message, true);
+        }
+      });
+
+      onId("btn-save-mem-instructions", "click", async () => {
+        try {
+          await api("/api/settings/update", { instructions: document.getElementById("mem-instructions-editor").value });
+          showToast("Standing instructions saved");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      async function triggerMemoryConsolidate() {
+        try {
+          const out = await api("/api/memory/consolidate", {});
+          showToast(`Consolidated memory: removed ${out.removedSlugs?.length || 0} duplicate/empty topic(s)`);
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      }
+      onId("btn-consolidate-mem", "click", triggerMemoryConsolidate);
+      onId("btn-set-consolidate-mem", "click", triggerMemoryConsolidate);
+
+      onId("btn-save-mem-index", "click", async () => {
+        try {
+          await api("/api/memory/save-index", { content: document.getElementById("mem-index-editor").value });
+          showToast("MEMORY.md saved");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-save-acct-mem", "click", async () => {
+        try {
+          await api("/api/memory/save-account", { content: document.getElementById("acct-mem-editor").value });
+          showToast("ACCOUNT_MEMORY.md saved");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-new-topic", "click", () => {
+        openDialog("dlg-topic");
+      });
+
+      registerFormHandler("form-topic", async () => {
+        await api("/api/memory/upsert-topic", {
+          topicSlug: document.getElementById("top-slug").value.trim(),
+          title: document.getElementById("top-title").value.trim(),
+          indexSummaryLine: document.getElementById("top-summary").value.trim(),
+          markdownBody: document.getElementById("top-body").value
+        });
+        closeDialog("dlg-topic");
+        showToast("Memory topic saved");
+        await refreshState();
+      });
+
+      function openBindRepoDialog() {
+        const pathInp = document.getElementById("br-path");
+        if (pathInp && !pathInp.value.trim()) {
+          pathInp.value = state.workspacePath || detectedWorkspacePath || "";
+        }
+        openDialog("dlg-bind-repo");
+      }
+      onId("btn-bind-repo", "click", openBindRepoDialog);
+      onId("btn-set-bind-repo", "click", openBindRepoDialog);
+
+      registerFormHandler("form-bind-repo", async () => {
+        const localPath = document.getElementById("br-path").value.trim();
+        const name = document.getElementById("br-name").value.trim();
+        const defaultBranch = document.getElementById("br-branch").value.trim();
+        await api("/api/repos/bind", {
+          localPath,
+          ...(name ? { name } : {}),
+          ...(defaultBranch ? { defaultBranch } : {})
+        });
+        closeDialog("dlg-bind-repo");
+        document.getElementById("br-name").value = "";
+        document.getElementById("br-branch").value = "";
+        showToast("Repository bound");
+        await refreshState();
+      });
+
+      onId("btn-sync-prs", "click", async () => {
+        try {
+          await api("/api/prs/sync", { triggerAutoFix: false });
+          showToast("Synced PRs via gh");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("set-instructions", "input", (e) => {
+        const len = e.target.value.length;
+        const badge = document.getElementById("inst-counter");
+        if (badge) {
+          badge.textContent = `${len.toLocaleString()} / 16,000`;
+          badge.className = `badge ${len > 16000 ? "err" : "ok"}`;
+        }
+      });
+
+      function parseEnvVarsText(rawText) {
+        const envVars = {};
+        for (const line of String(rawText || "").split(/\r?\n/)) {
+          const trimmed = line.trim();
+          if (!trimmed || trimmed.startsWith("#")) continue;
+          const eq = trimmed.indexOf("=");
+          if (eq > 0) {
+            const k = trimmed.slice(0, eq).trim();
+            const v = trimmed.slice(eq + 1);
+            if (k) envVars[k] = v;
+          }
+        }
+        return envVars;
+      }
+
+      registerFormHandler("form-settings", async () => {
+        const secretRefs = document
+          .getElementById("set-secret-refs")
+          .value.split(/[,\s]+/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const setupCmdVal = document.getElementById("set-setup-cmd").value.trim();
+        const existingOverrides = state.config?.models?.roleOverrides || {};
+        await api("/api/settings/update", {
+          name: document.getElementById("set-name").value.trim(),
+          goal: document.getElementById("set-goal").value.trim(),
+          instructions: document.getElementById("set-instructions").value,
+          models: {
+            coordinatorModel: document.getElementById("set-coordinator-model").value,
+            defaultThreadModel: document.getElementById("set-default-model").value,
+            roleOverrides: {
+              ...existingOverrides,
+              explorer: document.getElementById("set-role-explorer").value,
+              implementer: document.getElementById("set-role-implementer").value,
+              verifier: document.getElementById("set-role-verifier").value,
+              "pr-fixer": document.getElementById("set-role-pr-fixer").value
+            }
+          },
+          orchestration: {
+            maxConcurrentThreads: Number(document.getElementById("set-max-threads").value) || 5,
+            maxNewThreadsPerDay: Number(document.getElementById("set-max-daily").value) || 200,
+            idleAutoResolveDays: Number(document.getElementById("set-idle-days").value) || 7,
+            defaultWorkspaceMode: document.getElementById("set-ws-mode").value,
+            requireApprovalBeforeSpawn: document.getElementById("set-require-approval").checked
+          },
+          memory: {
+            useAccountMemory: document.getElementById("set-acct-mem").checked,
+            maxIndexLines: Number(document.getElementById("set-max-mem-lines").value) || 200,
+            autoPinLibraryTokenThreshold: Number(document.getElementById("set-pin-threshold").value) || 15000,
+            embeddingProvider: document.getElementById("set-emb-provider").value,
+            cloudEmbeddingModel: document.getElementById("set-cloud-model").value,
+            contextualHeaderMode: document.getElementById("set-header-mode").value,
+            cloudPaidTierConfirmed: document.getElementById("set-paid-tier").checked
+          },
+          environment: {
+            sandboxMode: document.getElementById("set-sandbox-mode").value,
+            networkPolicy: document.getElementById("set-network-policy").value,
+            setupCommand: setupCmdVal || null,
+            envVars: parseEnvVarsText(document.getElementById("set-env-vars").value),
+            secretRefs
+          }
+        });
+        showToast("Settings saved");
+        await refreshState();
+      });
+
+      onId("btn-refresh-diagnostics", "click", async () => {
+        try {
+          const diag = await api("/api/diagnostics?force=1");
+          state.diagnostics = diag;
+          renderDiagnosticsSections(diag);
+          showToast("Runtime diagnostics refreshed");
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-save-visibility", "click", async () => {
+        try {
+          await api("/api/settings/update", {
+            sharing: {
+              ...(state.config?.sharing || {}),
+              visibility: document.getElementById("set-visibility").value
+            }
+          });
+          showToast("Project visibility updated");
+          await refreshState();
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      registerFormHandler("form-add-member", async () => {
+        const principal = document.getElementById("mem-principal").value.trim();
+        const role = document.getElementById("mem-role").value;
+        const existing = Array.isArray(state.config?.sharing?.members) ? [...state.config.sharing.members] : [];
+        const idx = existing.findIndex((m) => m.principal === principal);
+        if (idx >= 0) existing[idx] = { principal, role };
+        else existing.push({ principal, role });
+        await api("/api/settings/update", {
+          sharing: {
+            ...(state.config?.sharing || {}),
+            members: existing
+          }
+        });
+        document.getElementById("mem-principal").value = "";
+        showToast(`Updated member ${principal} (${role})`);
+        await refreshState();
+      });
+
+      onId("chk-feed-only", "change", () => {
+        if (state.initialized && state.config) {
+          renderSettings(state.config, state.routines || [], state.snapshots || [], state.diagnostics || null);
+        }
+      });
+
+      onId("btn-new-routine", "click", () => {
+        openDialog("dlg-routine");
+      });
+
+      registerFormHandler("form-routine", async () => {
+        await api("/api/routines/upsert", {
+          name: document.getElementById("rt-name").value.trim(),
+          cronExpr: document.getElementById("rt-cron").value.trim(),
+          targetRole: document.getElementById("rt-role").value,
+          prompt: document.getElementById("rt-prompt").value.trim()
+        });
+        closeDialog("dlg-routine");
+        showToast("Routine saved");
+        await refreshState();
+      });
+
+      onId("btn-new-snapshot", "click", () => {
+        const convInput = document.getElementById("snap-conv-id");
+        if (convInput && !convInput.value.trim()) {
+          convInput.value = state.config?.coordinatorConversationId || HOST_CONVERSATION_ID || "";
+        }
+        openDialog("dlg-snapshot");
+      });
+
+      registerFormHandler("form-snapshot", async () => {
+        const convId = document.getElementById("snap-conv-id").value.trim();
+        const title = document.getElementById("snap-title").value.trim();
+        const publishToFeed = Boolean(document.getElementById("snap-publish-feed")?.checked);
+        await api("/api/snapshots/create", {
+          conversationId: convId,
+          ...(title ? { title } : {}),
+          publishToFeed
+        });
+        closeDialog("dlg-snapshot");
+        showToast("Point-in-time snapshot created");
+        await refreshState();
+      });
+
+      // ---------- Short-Lived Versioned HTTP Polling & UI Asset Hot-Reload ----------
+      function checkUiAssetHotReload(nextMtime) {
+        const m = Number(nextMtime || 0);
+        if (!m) return;
+        if (!loadedUiAssetMtimeMs) {
+          loadedUiAssetMtimeMs = m;
+          return;
+        }
+        if (m > loadedUiAssetMtimeMs) {
+          loadedUiAssetMtimeMs = m;
+          try { window.location.reload(); } catch {}
+        }
+      }
+
+      async function refreshState(incremental) {
+        if (incremental && pollInFlight) return;
+        if (incremental) pollInFlight = true;
+        try {
+          const pathWithQuery =
+            incremental && lastSeenVersion
+              ? `/api/state?sinceVersion=${encodeURIComponent(lastSeenVersion)}`
+              : "/api/state";
+          const data = await api(pathWithQuery);
+          if (data && data.version) {
+            lastSeenVersion = String(data.version);
+          }
+          checkUiAssetHotReload(data?.uiAssetMtimeMs);
+          if (data && data.unchanged) return;
+          state = data;
+          renderAll();
+        } catch (err) {
+          if (!incremental) showToast(err.message, true);
+        } finally {
+          if (incremental) pollInFlight = false;
+        }
+      }
+
+      // Render immediately so the Welcome Card & buttons are interactive before any network call completes
+      renderAll();
+      refreshState(false).catch(() => {});
+
+      setInterval(() => {
+        if (document.visibilityState === "hidden") return;
+        refreshState(true).catch(() => {});
+      }, 1500);
+
+      setInterval(() => {
+        if (document.visibilityState === "hidden") return;
+        const nowMs = Date.now();
+        for (const el of document.querySelectorAll("[data-working-since]")) {
+          const ts = Number(el.getAttribute("data-working-since"));
+          if (!Number.isFinite(ts)) continue;
+          const sec = Math.max(0, Math.floor((nowMs - ts) / 1000));
+          el.textContent = `Running ${formatElapsedSeconds(sec)}`;
+        }
+      }, 1000);
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+          refreshState(true).catch(() => {});
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

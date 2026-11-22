@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.DS_Store
+node_modules/
+scripts/.hook_router_next.cjs
+*.log
+.env
+.env.*

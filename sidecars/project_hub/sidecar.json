@@ -1,0 +1,18 @@
+{
+  "display_name": "Project Hub",
+  "description": "AGY Projects 6-Tab Workspace: Overview, Parallel Threads, Contextual RAG Library, Shared Memory, Pull Requests & Settings",
+  "command": "node",
+  "args": ["daemon.cjs"],
+  "has_web_ui": true,
+  "restart_policy": "always",
+  "ui_config": {
+    "display_name": "Project Hub",
+    "views": [
+      {
+        "entrypoint": "SIDECAR_UI_ENTRYPOINT_AUX_PANE",
+        "path": "/ui.html",
+        "title": "Project Hub"
+      }
+    ]
+  }
+}

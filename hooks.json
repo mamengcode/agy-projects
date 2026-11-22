@@ -1,0 +1,50 @@
+{
+  "agy-projects-lifecycle": {
+    "enabled": true,
+    "SessionStart": [
+      {
+        "type": "command",
+        "command": "node ./scripts/hook_router.cjs",
+        "timeout": 10
+      }
+    ],
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "node ./scripts/hook_router.cjs",
+        "timeout": 10
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "invoke_subagent|edit_file|write_file|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hook_router.cjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "invoke_subagent|write_file|run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./scripts/hook_router.cjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "type": "command",
+        "command": "node ./scripts/hook_router.cjs",
+        "timeout": 10
+      }
+    ]
+  }
+}
