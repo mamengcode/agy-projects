@@ -485,6 +485,15 @@
       background: var(--ph-surface);
       margin-block-end: 8px;
     }
+    .thread-item.swarm-helper {
+      border-inline-start: 3px solid var(--ph-accent);
+      background: color-mix(in srgb, var(--ph-surface) 94%, var(--ph-accent));
+    }
+    .td-board-msg {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--ph-border);
+    }
+    .td-board-msg:last-child { border-bottom: none; }
     .row-between {
       display: flex;
       align-items: center;
@@ -647,6 +656,8 @@
       <span id="status-badge" class="badge">No Project</span>
     </div>
     <div class="topbar-right">
+      <span id="swarm-status-pill" class="badge" hidden>Swarm: 0 working</span>
+      <button type="button" id="btn-open-swarm-board" class="small" disabled title="Focus Swarm Coordinator conversation">Swarm Board ↗</button>
       <button type="button" id="btn-open-coordinator" class="small" disabled>Open Chat</button>
       <button type="button" id="btn-new-project" class="primary small">+ New</button>
     </div>
@@ -914,18 +925,40 @@
                   <label for="set-coordinator-model">Coordinator Model</label>
                   <select id="set-coordinator-model" name="coordinatorModel">
                     <option value="inherit">inherit (Host Default)</option>
-                    <option value="pro">pro</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="pro">pro</option>
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-default-model">Default Worker Thread Model</label>
                   <select id="set-default-model" name="defaultThreadModel">
                     <option value="inherit">inherit (Coordinator Model)</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
@@ -942,36 +975,80 @@
                   <label for="set-role-explorer">Explorer Role Model</label>
                   <select id="set-role-explorer" name="roleExplorerModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-role-implementer">Implementer Role Model</label>
                   <select id="set-role-implementer" name="roleImplementerModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-role-verifier">Verifier Role Model</label>
                   <select id="set-role-verifier" name="roleVerifierModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-role-pr-fixer">PR-Fixer Role Model</label>
                   <select id="set-role-pr-fixer" name="rolePrFixerModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
               </div>
@@ -992,6 +1069,10 @@
               <div class="checkbox-row" style="margin-top:8px;margin-bottom:0">
                 <input type="checkbox" id="set-require-approval" name="requireApprovalBeforeSpawn">
                 <label for="set-require-approval">Require Coordinator planning approval before spawning write-enabled Worker Threads</label>
+              </div>
+              <div class="checkbox-row" style="margin-top:6px;margin-bottom:0">
+                <input type="checkbox" id="set-auto-swarm-monitor" name="autoSpawnSwarmMonitor">
+                <label for="set-auto-swarm-monitor">Auto-spawn Swarm monitor helper to watch for stalled workers</label>
               </div>
               <div class="checkbox-row" style="margin-top:6px;margin-bottom:0">
                 <input type="checkbox" id="chk-show-archived" name="showArchived">
@@ -1228,6 +1309,26 @@
         </select>
       </div>
       <div class="field">
+        <label for="nt-model">Worker Model</label>
+        <select id="nt-model" name="model">
+          <option value="inherit">inherit (Role / Default Model)</option>
+          <optgroup label="Built-in Swarm Models">
+            <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+            <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+            <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+            <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+            <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+            <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+            <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+          </optgroup>
+          <optgroup label="Legacy Tier Aliases">
+            <option value="pro">pro</option>
+            <option value="flash">flash</option>
+            <option value="flash_lite">flash_lite</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
         <label for="pt-desc">Task Brief &amp; Acceptance Criteria <span aria-hidden="true">*</span></label>
         <textarea id="pt-desc" name="description" rows="4" required></textarea>
       </div>
@@ -1332,6 +1433,13 @@
       </div>
       <div id="td-meta" class="muted mono"></div>
       <pre id="td-telemetry" class="code-preview" role="region" aria-label="Thread telemetry log" tabindex="0"><code id="td-telemetry-code"></code></pre>
+      <section id="td-swarm-board-section" hidden aria-labelledby="td-swarm-board-heading">
+        <div class="row-between" style="margin-bottom:4px">
+          <strong id="td-swarm-board-heading" style="font-size:12px">Swarm Board Activity</strong>
+          <button type="button" id="btn-td-refresh-board" class="small">↻ Refresh Board</button>
+        </div>
+        <div id="td-swarm-board-list" class="code-preview" style="max-height:180px;overflow-y:auto;white-space:normal" role="region" aria-label="Swarm board messages" tabindex="0"></div>
+      </section>
       <form action="#" method="post" id="form-steer-thread" aria-labelledby="steer-form-label" style="display:flex;flex-direction:column;gap:8px">
         <input type="hidden" id="steer-thread-id" name="threadId">
         <div class="field">
@@ -1339,11 +1447,61 @@
           <textarea id="steer-input" name="message" rows="3" required autofocus placeholder="Send instructions, answers, or feedback to this thread..."></textarea>
         </div>
         <div class="row-between">
-          <span class="muted">Dispatches to the bound conversation via Sidecar SDK or wakes the headless worker.</span>
+          <span class="muted">Dispatches to the Swarm Coordinator board, Sidecar SDK, or headless worker.</span>
           <button type="submit" id="btn-submit-steer" class="primary">Send Steering Message</button>
         </div>
       </form>
     </div>
+  </dialog>
+
+  <!-- MODAL: Switch Swarm Worker Model -->
+  <dialog id="dlg-switch-model" closedby="any" aria-labelledby="dlg-sm-title">
+    <form action="#" method="post" class="dialog-body" id="form-switch-model" aria-labelledby="dlg-sm-title">
+      <h3 id="dlg-sm-title" style="margin:0">Switch Swarm Worker Model</h3>
+      <input type="hidden" id="sm-thread-id" name="threadId">
+      <div id="sm-target-label" class="muted mono"></div>
+      <div class="field">
+        <label for="sm-model">Target Model</label>
+        <select id="sm-model" name="model">
+          <option value="inherit">inherit (Coordinator Model)</option>
+          <optgroup label="Built-in Swarm Models">
+            <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+            <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+            <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+            <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+            <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+            <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+            <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+          </optgroup>
+          <optgroup label="Legacy Tier Aliases">
+            <option value="pro">pro</option>
+            <option value="flash">flash</option>
+            <option value="flash_lite">flash_lite</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label for="sm-custom-model">Custom Model ID (optional override)</label>
+        <input type="text" id="sm-custom-model" name="customModel" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Leave blank to use selected model above">
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-switch-model">Cancel</button>
+        <button type="submit" id="btn-submit-switch-model" class="primary">Switch Model</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Confirm Kill Swarm Worker -->
+  <dialog id="dlg-kill-worker" closedby="any" aria-labelledby="dlg-kw-title">
+    <form action="#" method="post" class="dialog-body" id="form-kill-worker" aria-labelledby="dlg-kw-title">
+      <h3 id="dlg-kw-title" style="margin:0;color:var(--ph-err)">Kill Swarm Worker</h3>
+      <input type="hidden" id="kw-thread-id" name="threadId">
+      <p id="kw-confirm-msg" style="margin:0"></p>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-kill-worker">Cancel</button>
+        <button type="submit" id="btn-submit-kill-worker" class="danger">Confirm Kill Worker</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- MODAL: Rollover Coordinator Session -->
@@ -1923,6 +2081,7 @@
       let draftGoalText = null;
       let lastActiveProjectId = "";
       let inspectedThreadId = "";
+      let lastLoadedBoardKey = "";
 
       function openConversationInHost(convId, label) {
         if (!convId) {
@@ -1944,31 +2103,53 @@
           openConversationInHost(cfg.coordinatorConversationId, "Coordinator");
           return;
         }
-        if (window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
-          try {
-            const starter = `Continue coordinating AGY Project "${cfg.name}" in ${state.workspacePath}. Call get_project_overview first.`;
-            const res = await window.sidecar.agent.startConversation(starter, `${cfg.name} Coordinator`);
-            const newId = res?.conversationId || res?.response?.conversationId || "";
-            if (newId) {
-              await api("/api/projects/select", {
-                projectId: cfg.projectId,
-                bindCoordinatorConversationId: newId
-              });
-              openConversationInHost(newId, "Coordinator");
-              await refreshState();
-              return;
-            }
-          } catch (err) {
-            showToast(err.message || "Could not launch Coordinator chat", true);
+        try {
+          showToast("Ensuring Swarm Coordinator session…");
+          const res = await api("/api/coordinator/ensure", {
+            projectId: cfg.projectId,
+            autoSpawn: true
+          });
+          const newId = res?.coordinatorConversationId || "";
+          if (newId) {
+            openConversationInHost(newId, "Coordinator");
+            await refreshState();
             return;
           }
+          showToast("Coordinator ensured; open from host chat to interact.");
+        } catch (err) {
+          showToast(err.message || "Could not launch Coordinator chat", true);
         }
-        showToast("Bind the Coordinator from chat via create_project or select_project.");
       }
 
       async function startSuggestedThreadFromUi(thread, opts = {}) {
         if (!thread) return;
         const verb = opts && opts.isRetry ? "Retrying" : "Started";
+        if (shouldDispatchViaSwarmUi()) {
+          let res;
+          try {
+            res = await api("/api/threads/action", {
+              action: "start",
+              threadId: thread.thread_id,
+              autoStartCoordinator: true,
+              launchViaSwarm: true,
+              launchHeadless: false
+            });
+          } catch (err) {
+            showToast(err.message || `Failed to dispatch ${thread.title}`, true);
+            throw err;
+          }
+          if (res?.relayTimedOut) {
+            showToast(`Swarm dispatch queued (relay timed out): ${thread.title}`, true);
+          } else if (res?.headlessAuthMissing) {
+            showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+          } else if (res?.dispatchedVia === "swarm") {
+            showToast(`Dispatched ${thread.title} to Swarm Coordinator`);
+          } else {
+            showToast(`${verb} ${thread.title}`);
+          }
+          await refreshState();
+          return;
+        }
         const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
         if (headlessReady) {
           const res = await api("/api/threads/action", {
@@ -1991,7 +2172,7 @@
             `\nReport progress and completion via update_thread_state(workspacePath="${state.workspacePath}", threadId="${thread.thread_id}", ...).`
           ].join("\n");
           const started = await window.sidecar.agent.startConversation(prompt, thread.title);
-          const newConvId = started?.conversationId || started?.response?.conversationId || "";
+          const newConvId = started?.conversationId || started?.response?.conversationId || started?.response?.newConversation?.conversationId || "";
           await api("/api/threads/action", {
             action: "start",
             threadId: thread.thread_id,
@@ -2019,7 +2200,53 @@
         await refreshState();
       }
 
+      function shouldDispatchViaSwarmUi() {
+        const engine = state?.config?.orchestration?.executionEngine;
+        const unsupported = state?.swarm?.unsupportedReason || state?.diagnostics?.connectors?.builtinSwarm?.unsupportedReason;
+        if (unsupported) return false;
+        if (engine === "swarm") return true;
+        if (engine === "headless" || engine === "subagent") return false;
+        return Boolean(
+          state?.diagnostics?.connectors?.builtinSwarm?.ok ||
+            state?.swarm?.active ||
+            state?.swarm?.verifiedCapable ||
+            state?.config?.coordinatorConversationId
+        );
+      }
+
       async function startSuggestedBatchFromUi({ mode = "all", threadIds = [] } = {}) {
+        if (shouldDispatchViaSwarmUi()) {
+          const payload =
+            mode === "selected"
+              ? { action: "start_selected", threadIds: Array.from(threadIds || []), autoStartCoordinator: true, launchViaSwarm: true, launchHeadless: false }
+              : { action: "start_all", autoStartCoordinator: true, launchViaSwarm: true, launchHeadless: false };
+          let res;
+          try {
+            res = await api("/api/threads/action", payload);
+          } catch (err) {
+            showToast(err.message || "Failed to dispatch tasks to Swarm", true);
+            throw err;
+          }
+          selectedSuggestedIds.clear();
+          if (res?.headlessAuthMissing) {
+            showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+          } else if (res?.dispatchedVia === "swarm") {
+            const cnt = res.dispatchCount ?? res.startedCount ?? 0;
+            showToast(
+              mode === "selected"
+                ? `Dispatched ${cnt} selected task(s) to Swarm Coordinator`
+                : `Dispatched ${cnt} task(s) to Swarm Coordinator`
+            );
+          } else {
+            showToast(
+              mode === "selected"
+                ? `Started ${res.startedCount} selected task(s)`
+                : `Started ${res.startedCount} task(s)`
+            );
+          }
+          await refreshState();
+          return;
+        }
         const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
         const hasNativeChat = Boolean(
           window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function"
@@ -2067,6 +2294,47 @@
       async function sendThreadReplyOrSteer(thread, messageText) {
         const msg = String(messageText || "").trim();
         if (!msg) return;
+        if (thread?.swarm_member_name) {
+          if (thread.swarm_state === "killed") {
+            showToast(`Cannot steer killed Swarm worker @${thread.swarm_member_name}.`, true);
+            return;
+          }
+          const res = await api("/api/threads/action", {
+            action: "steer",
+            threadId: thread.thread_id,
+            message: msg
+          });
+          draftReplies.delete(thread.thread_id);
+          if (res?.relayTimedOut) {
+            showToast(`Steer queued for @${thread.swarm_member_name} (Coordinator relay timed out)`, true);
+          } else {
+            showToast(`Sent steering message to @${thread.swarm_member_name}`);
+          }
+          await refreshState();
+          return;
+        }
+        if (thread?.execution_backend === "swarm" && !thread.swarm_member_name) {
+          const combinedPrompt = [
+            thread.description ? String(thread.description).trim() : "",
+            `User Follow-up Instruction:\n${msg}`
+          ].filter(Boolean).join("\n\n");
+          const res = await api("/api/threads/action", {
+            action: "start",
+            threadId: thread.thread_id,
+            prompt: combinedPrompt,
+            autoStartCoordinator: true,
+            launchViaSwarm: true,
+            launchHeadless: false
+          });
+          draftReplies.delete(thread.thread_id);
+          if (res?.relayTimedOut) {
+            showToast(`Swarm launch queued for ${thread.title} (Coordinator relay timed out)`, true);
+          } else {
+            showToast(`Dispatched ${thread.title} to Swarm Coordinator`);
+          }
+          await refreshState();
+          return;
+        }
         const res = await api("/api/threads/action", {
           action: "steer",
           threadId: thread.thread_id,
@@ -2087,6 +2355,166 @@
         await refreshState();
       }
 
+      function isSwarmThread(t) {
+        return Boolean(t && (t.swarm_member_name || t.swarm_origin_coordinator_id || t.execution_backend === "swarm"));
+      }
+
+      function isLiveSwarmWorker(t) {
+        if (!t || !t.swarm_member_name) return false;
+        if (t.swarm_state === "killed") return false;
+        const activeCoord = state.swarm?.coordinatorConversationId || state.config?.coordinatorConversationId;
+        if (t.swarm_origin_coordinator_id && activeCoord && t.swarm_origin_coordinator_id !== activeCoord) return false;
+        return Boolean(t.swarm_state === "working" || t.swarm_state === "waiting" || t.execution_backend === "swarm");
+      }
+
+      function openSwitchModelDialog(thread) {
+        if (!thread) return;
+        document.getElementById("sm-thread-id").value = thread.thread_id;
+        document.getElementById("sm-target-label").textContent =
+          `@${thread.swarm_member_name || "worker"} — ${thread.title} (current: ${thread.swarm_model || "inherit"})`;
+        const sel = document.getElementById("sm-model");
+        const customInp = document.getElementById("sm-custom-model");
+        const curModel = thread.swarm_model || "inherit";
+        if (sel && Array.from(sel.options).some((o) => o.value === curModel)) {
+          sel.value = curModel;
+          if (customInp) customInp.value = "";
+        } else if (sel) {
+          sel.value = "inherit";
+          if (customInp) customInp.value = curModel !== "inherit" ? curModel : "";
+        }
+        openDialog("dlg-switch-model");
+      }
+
+      function openKillWorkerDialog(thread) {
+        if (!thread) return;
+        document.getElementById("kw-thread-id").value = thread.thread_id;
+        const wsNote =
+          thread.workspace_mode && thread.workspace_mode !== "inherit"
+            ? ` and permanently delete its isolated '${thread.workspace_mode}' workspace copy`
+            : "";
+        document.getElementById("kw-confirm-msg").textContent =
+          `Permanently kill Swarm worker @${thread.swarm_member_name || thread.title}${wsNote}? Killed workers cannot be revived.`;
+        openDialog("dlg-kill-worker");
+      }
+
+      function appendSwarmWorkerBadgeGroup(badgeGroup, t) {
+        if (!t) return;
+        if (String(t.thread_id || "").startsWith("swarm-")) {
+          const helperBadge = document.createElement("span");
+          helperBadge.className = "badge";
+          helperBadge.style.borderStyle = "dashed";
+          helperBadge.textContent = "Worker Helper";
+          badgeGroup.appendChild(helperBadge);
+        }
+        if (t.swarm_member_name) {
+          const mBadge = document.createElement("span");
+          mBadge.className = "badge mono";
+          mBadge.textContent = `@${t.swarm_member_name}`;
+          badgeGroup.appendChild(mBadge);
+        }
+        if (t.swarm_state) {
+          const sBadge = document.createElement("span");
+          sBadge.className = `badge ${t.swarm_state === "working" ? "ok" : t.swarm_state === "killed" ? "err" : ""}`;
+          sBadge.textContent = `Swarm: ${t.swarm_state}`;
+          badgeGroup.appendChild(sBadge);
+        }
+        if (t.swarm_model && t.swarm_model !== "inherit") {
+          const modBadge = document.createElement("span");
+          modBadge.className = "badge mono";
+          modBadge.textContent = t.swarm_model;
+          badgeGroup.appendChild(modBadge);
+        }
+        if (t.active_dispatch_id) {
+          const dispBadge = document.createElement("span");
+          dispBadge.className = "badge warn";
+          dispBadge.textContent = "Dispatching…";
+          badgeGroup.appendChild(dispBadge);
+        }
+      }
+
+      function appendSwarmWorkerActionButtons(container, t) {
+        if (!isLiveSwarmWorker(t)) return;
+        if (t.swarm_state === "waiting") {
+          const btnModel = document.createElement("button");
+          btnModel.type = "button";
+          btnModel.className = "small";
+          btnModel.textContent = "⇄ Model";
+          btnModel.addEventListener("click", () => openSwitchModelDialog(t));
+          container.appendChild(btnModel);
+        }
+        if (t.swarm_state === "working" || t.swarm_state === "waiting") {
+          const btnKill = document.createElement("button");
+          btnKill.type = "button";
+          btnKill.className = "danger small";
+          btnKill.textContent = "✕ Kill Worker";
+          btnKill.addEventListener("click", () => openKillWorkerDialog(t));
+          container.appendChild(btnKill);
+        }
+      }
+
+      async function loadThreadSwarmBoard(threadId, opts = {}) {
+        const sec = document.getElementById("td-swarm-board-section");
+        const list = document.getElementById("td-swarm-board-list");
+        if (!sec || !list || !threadId) return;
+        const thread = (state.threads || []).find((x) => x.thread_id === threadId);
+        if (!isSwarmThread(thread)) {
+          sec.hidden = true;
+          list.replaceChildren();
+          return;
+        }
+        sec.hidden = false;
+        const boardKey = `${threadId}:${Number(thread?.swarm_last_seq || 0)}:${String(thread?.swarm_state || "")}:${Number(state.swarm?.head || 0)}`;
+        if (!opts.force && lastLoadedBoardKey === boardKey && list.childElementCount > 0) {
+          return;
+        }
+        if (list.childElementCount === 0) {
+          const loading = document.createElement("div");
+          loading.className = "muted";
+          loading.textContent = "Loading Swarm board messages…";
+          list.replaceChildren(loading);
+        }
+        try {
+          const res = await api(`/api/swarm/thread-board?threadId=${encodeURIComponent(threadId)}&limit=100`);
+          if (inspectedThreadId !== threadId) return;
+          lastLoadedBoardKey = `${threadId}:${Number(thread?.swarm_last_seq || 0)}:${String(thread?.swarm_state || "")}:${Number(state.swarm?.head || 0)}`;
+          list.replaceChildren();
+          if (res?.unsupportedReason) {
+            const note = document.createElement("div");
+            note.className = "muted";
+            note.textContent = `Swarm board unavailable (${res.unsupportedReason}).`;
+            list.appendChild(note);
+            return;
+          }
+          const msgs = Array.isArray(res?.messages) ? res.messages : [];
+          if (msgs.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = "No Swarm board messages recorded for this worker yet.";
+            list.appendChild(empty);
+            return;
+          }
+          for (const m of msgs) {
+            const item = document.createElement("div");
+            item.className = "td-board-msg";
+            const hdr = document.createElement("div");
+            hdr.className = "muted mono";
+            hdr.textContent = `#${m.seq} • ${m.agent || "member"} • ${m.time || ""}`;
+            const txt = document.createElement("div");
+            txt.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px";
+            txt.textContent = String(m.text || "");
+            item.append(hdr, txt);
+            list.appendChild(item);
+          }
+        } catch (err) {
+          if (inspectedThreadId !== threadId) return;
+          list.replaceChildren();
+          const errDiv = document.createElement("div");
+          errDiv.className = "muted";
+          errDiv.textContent = `Could not load Swarm board: ${err.message || "error"}`;
+          list.appendChild(errDiv);
+        }
+      }
+
       function populateThreadDetailModal(thread) {
         if (!thread) return;
         inspectedThreadId = thread.thread_id;
@@ -2104,6 +2532,11 @@
         const metaLines = [
           `Thread ID: ${thread.thread_id} | Role: ${thread.role} | Bucket: ${thread.ui_bucket} (${thread.server_status})`,
           `Conversation: ${thread.conversation_id || "(Headless SDK / Pending)"} | Model: ${thread.model || "inherit"}`,
+          ...(thread.swarm_member_name || thread.execution_backend === "swarm"
+            ? [
+                `Swarm Member: @${thread.swarm_member_name || "(unassigned)"} | Swarm State: ${thread.swarm_state || "n/a"} | Swarm Model: ${thread.swarm_model || "inherit"}${thread.active_dispatch_id ? ` | Active Dispatch: ${thread.active_dispatch_id}` : ""}`
+              ]
+            : []),
           `Workspace Mode: ${thread.workspace_mode}${thread.branch_name ? ` | Branch: ${thread.branch_name}` : ""}`,
           ...(thread.worktree_path ? [`Worktree: ${thread.worktree_path}`] : []),
           ...(globs.length ? [`Owned Globs: ${globs.join(", ")}`] : []),
@@ -2121,11 +2554,44 @@
           ? telemetry.map((ev) => `[${ev.at || ""}] (${ev.type || "event"}) ${ev.tool ? ev.tool + " " : ""}${ev.text || ev.args || ""}`.trim())
           : [thread.blocking_question || thread.last_summary || thread.description || "No telemetry events recorded yet."];
         document.getElementById("td-telemetry-code").textContent = telLines.join("\n");
+
+        const sec = document.getElementById("td-swarm-board-section");
+        if (sec) {
+          sec.hidden = !isSwarmThread(thread);
+          if (!sec.hidden && document.getElementById("dlg-thread-detail")?.open) {
+            loadThreadSwarmBoard(thread.thread_id).catch(() => {});
+          }
+        }
       }
 
       function openThreadDetailDialog(thread) {
+        lastLoadedBoardKey = "";
         populateThreadDetailModal(thread);
         openDialog("dlg-thread-detail");
+        loadThreadSwarmBoard(thread.thread_id, { force: true }).catch(() => {});
+      }
+
+      function computeSwarmStatusPill(st) {
+        const sw = st?.swarm;
+        const pd = Array.isArray(st?.dispatches)
+          ? st.dispatches.length
+          : (Array.isArray(sw?.pendingDispatches)
+              ? sw.pendingDispatches.length
+              : Number(sw?.pendingDispatches || 0));
+        if (!sw) return { hidden: true, className: "badge", text: "" };
+        if (sw.unsupportedReason === "remote_swarm") {
+          return { hidden: false, className: "badge warn", text: "Swarm: remote (readonly)" };
+        }
+        if (sw.active || (sw.counts && sw.counts.total > 0) || pd > 0) {
+          const w = Number(sw.counts?.working || 0);
+          const wt = Number(sw.counts?.waiting || 0);
+          return {
+            hidden: false,
+            className: `badge ${w > 0 ? "ok" : pd > 0 ? "warn" : ""}`,
+            text: `Swarm: ${w} working • ${wt} waiting${pd > 0 ? ` • ${pd} dispatching` : ""}`
+          };
+        }
+        return { hidden: true, className: "badge", text: "" };
       }
 
       function renderAll() {
@@ -2160,6 +2626,8 @@
           }
 
           const badge = document.getElementById("status-badge");
+          const swarmPill = document.getElementById("swarm-status-pill");
+          const btnSwarmBoard = document.getElementById("btn-open-swarm-board");
           const btnPause = document.getElementById("btn-pause-resume");
           const btnStar = document.getElementById("btn-star");
           const btnOpenCoord = document.getElementById("btn-open-coordinator");
@@ -2170,6 +2638,8 @@
               badge.textContent = "No Project";
               badge.className = "badge";
             }
+            if (swarmPill) swarmPill.hidden = true;
+            if (btnSwarmBoard) btnSwarmBoard.disabled = true;
             if (btnPause) btnPause.disabled = true;
             if (btnStar) btnStar.disabled = true;
             if (btnOpenCoord) btnOpenCoord.disabled = true;
@@ -2198,7 +2668,14 @@
             btnStar.textContent = cfg.starred ? "★" : "☆";
           }
           if (btnOpenCoord) btnOpenCoord.disabled = false;
+          if (btnSwarmBoard) btnSwarmBoard.disabled = cfg.status !== "active";
           if (btnRollover) btnRollover.disabled = false;
+          if (swarmPill) {
+            const pillState = computeSwarmStatusPill(state);
+            swarmPill.hidden = pillState.hidden;
+            swarmPill.className = pillState.className;
+            swarmPill.textContent = pillState.text;
+          }
           if (badge) {
             const statusLabel = cfg.status ? cfg.status.charAt(0).toUpperCase() + cfg.status.slice(1) : "Active";
             badge.textContent = statusLabel;
@@ -2480,7 +2957,7 @@
 
           for (const t of bThreads) {
             const row = document.createElement("div");
-            row.className = "thread-item";
+            row.className = String(t.thread_id || "").startsWith("swarm-") ? "thread-item swarm-helper" : "thread-item";
             const top = document.createElement("div");
             top.className = "row-between";
 
@@ -2536,6 +3013,7 @@
                 }
               }
             }
+            appendSwarmWorkerBadgeGroup(badgeGroup, t);
             const b = document.createElement("span");
             b.className = `badge ${bucketKey === "waiting_on_you" ? "warn" : bucketKey === "working" ? "ok" : ""}`;
             b.textContent = formatThreadRoleBadge(t);
@@ -2560,6 +3038,16 @@
               if (repoObj?.name) workMeta.appendChild(document.createTextNode(` • Repo: ${repoObj.name}`));
               if (t.branch_name) workMeta.appendChild(document.createTextNode(` • Branch: ${t.branch_name}`));
               row.appendChild(workMeta);
+            }
+
+            if (t.swarm_last_message || Number(t.swarm_last_seq || 0) > 0) {
+              const boardSnippet = document.createElement("div");
+              boardSnippet.className = "muted mono";
+              boardSnippet.style.cssText = "margin-top:4px;overflow-wrap:anywhere";
+              boardSnippet.textContent = t.swarm_last_message
+                ? `Board: ${t.swarm_last_message}`
+                : `Board seq #${t.swarm_last_seq}`;
+              row.appendChild(boardSnippet);
             }
 
             if (bucketKey === "waiting_on_you") {
@@ -2615,6 +3103,7 @@
                   btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
                   errActions.appendChild(btnOpen);
                 }
+                appendSwarmWorkerActionButtons(errActions, t);
                 row.appendChild(errActions);
               } else {
                 const replyRow = document.createElement("div");
@@ -2667,6 +3156,7 @@
                   btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
                   replyRow.appendChild(btnOpen);
                 }
+                appendSwarmWorkerActionButtons(replyRow, t);
                 row.appendChild(replyRow);
                 if (activeReplyTid && activeReplyTid === t.thread_id) {
                   queueMicrotask(() => {
@@ -2743,6 +3233,8 @@
                 btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
                 actions.appendChild(btnOpen);
               }
+
+              appendSwarmWorkerActionButtons(actions, t);
 
               if (bucketKey === "ready_for_review" || bucketKey === "landing" || bucketKey === "paused" || bucketKey === "idle") {
                 const btnRes = document.createElement("button");
@@ -2845,15 +3337,19 @@
         const repoById = new Map(repos.map((r) => [r.repo_id, r.name]));
         for (const t of filtered) {
           const el = document.createElement("div");
-          el.className = "thread-item";
+          el.className = String(t.thread_id || "").startsWith("swarm-") ? "thread-item swarm-helper" : "thread-item";
           const head = document.createElement("div");
           head.className = "row-between";
           const title = document.createElement("strong");
           title.textContent = t.title;
+          const badgesWrap = document.createElement("div");
+          badgesWrap.style.cssText = "display:flex;gap:4px;align-items:center;flex-wrap:wrap";
+          appendSwarmWorkerBadgeGroup(badgesWrap, t);
           const badge = document.createElement("span");
           badge.className = `badge ${t.ui_bucket === "working" ? "ok" : t.ui_bucket === "waiting_on_you" ? "warn" : ""}`;
           badge.textContent = `${t.role} • ${t.ui_bucket}`;
-          head.append(title, badge);
+          badgesWrap.appendChild(badge);
+          head.append(title, badgesWrap);
 
           const desc = document.createElement("div");
           desc.className = "muted";
@@ -2867,6 +3363,16 @@
           meta.textContent = `ID: ${t.thread_id} | Mode: ${t.workspace_mode}${repoLabel}${t.branch_name ? ` | Branch: ${t.branch_name}` : ""}`;
 
           el.append(head, desc, meta);
+
+          if (t.swarm_last_message || Number(t.swarm_last_seq || 0) > 0) {
+            const bLine = document.createElement("div");
+            bLine.className = "muted mono";
+            bLine.style.cssText = "margin-top:4px;overflow-wrap:anywhere";
+            bLine.textContent = t.swarm_last_message
+              ? `Board: ${t.swarm_last_message}`
+              : `Board seq #${t.swarm_last_seq}`;
+            el.appendChild(bLine);
+          }
 
           if (Array.isArray(t.live_telemetry) && t.live_telemetry.length > 0) {
             const lastEvt = t.live_telemetry[t.live_telemetry.length - 1];
@@ -2919,6 +3425,8 @@
           bInspect.textContent = "Inspect / Steer";
           bInspect.addEventListener("click", () => openThreadDetailDialog(t));
           bar.appendChild(bInspect);
+
+          appendSwarmWorkerActionButtons(bar, t);
 
           if (t.ui_bucket !== "resolved") {
             const bRes = document.createElement("button");
@@ -3346,8 +3854,10 @@
             p.textContent = "Diagnostics unavailable.";
             cList.appendChild(p);
           } else {
+            const bs = conn.builtinSwarm;
             const rows = [
               ["MCP Server", conn.mcpServer?.ok, conn.mcpServer?.label || "agy_projects_mcp"],
+              ["Built-in Swarm", bs?.ok, bs?.summary || (bs?.unsupportedReason ? `Disabled (${bs.unsupportedReason})` : "No active Swarm detected yet")],
               ["GitHub CLI (gh)", conn.githubCli?.ok, conn.githubCli?.summary || (conn.githubCli?.installed ? "Installed" : "Not found")],
               ["Google Drive Skill", conn.googleDrive?.ok, conn.googleDrive?.ok ? "gdrive SKILL.md available" : "gdrive plugin not installed"],
               ["Contextual RAG Python Env", conn.ragVenv?.ok, conn.ragVenv?.pythonPath || "Not ready"],
@@ -3419,6 +3929,8 @@
         setIfIdle("set-idle-days", cfg.orchestration?.idleAutoResolveDays ?? 7);
         setIfIdle("set-ws-mode", cfg.orchestration?.defaultWorkspaceMode || "share");
         document.getElementById("set-require-approval").checked = cfg.orchestration?.requireApprovalBeforeSpawn !== false;
+        const autoMonEl = document.getElementById("set-auto-swarm-monitor");
+        if (autoMonEl) autoMonEl.checked = cfg.orchestration?.autoSpawnSwarmMonitor === true;
 
         const btnSetPause = document.getElementById("btn-set-pause-resume");
         if (btnSetPause) {
@@ -3715,6 +4227,7 @@
       onId("btn-new-project", "click", openNewProjectDialog);
 
       onId("btn-open-coordinator", "click", openCoordinatorChat);
+      onId("btn-open-swarm-board", "click", openCoordinatorChat);
 
       onId("btn-rollover-coordinator", "click", () => {
         if (!state.config) return;
@@ -3724,22 +4237,54 @@
         openDialog("dlg-rollover");
       });
 
-      registerFormHandler("form-rollover", async () => {
-        const summary = document.getElementById("ro-summary").value.trim();
-        let newConvId = document.getElementById("ro-new-conv").value.trim();
-        if (!newConvId && window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
-          try {
-            const handoff = state.wrapupCheckpoint
-              ? `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}.\n\n${state.wrapupCheckpoint}`
-              : `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}. Call get_project_overview first.`;
-            const started = await window.sidecar.agent.startConversation(handoff, `${state.config.name} Coordinator`);
-            newConvId = started?.conversationId || started?.response?.conversationId || "";
-          } catch {}
+      async function submitRolloverCoordinator({ summary, newConvId }) {
+        const trimmedSummary = String(summary || "").trim();
+        let nextConvId = String(newConvId || "").trim();
+        if (nextConvId) {
+          await api("/api/projects/rollover", {
+            newConversationId: nextConvId,
+            summary: trimmedSummary
+          });
+          return nextConvId;
         }
         await api("/api/projects/rollover", {
-          ...(newConvId ? { newConversationId: newConvId } : {}),
-          summary
+          summary: trimmedSummary
         });
+        if (state.config?.status === "active") {
+          try {
+            const ensureRes = await api("/api/coordinator/ensure", {
+              projectId: state.config.projectId,
+              autoSpawn: true
+            });
+            nextConvId = ensureRes?.coordinatorConversationId || "";
+          } catch {}
+          if (!nextConvId && window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
+            try {
+              const handoff = state.wrapupCheckpoint
+                ? `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}.\n\n${state.wrapupCheckpoint}`
+                : `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}. Call get_project_overview first.`;
+              const started = await window.sidecar.agent.startConversation(handoff, `${state.config.name} Coordinator`);
+              nextConvId =
+                started?.conversationId ||
+                started?.response?.conversationId ||
+                started?.response?.newConversation?.conversationId ||
+                "";
+              if (nextConvId) {
+                await api("/api/projects/select", {
+                  projectId: state.config.projectId,
+                  bindCoordinatorConversationId: nextConvId
+                });
+              }
+            } catch {}
+          }
+        }
+        return nextConvId;
+      }
+
+      registerFormHandler("form-rollover", async () => {
+        const summary = document.getElementById("ro-summary").value.trim();
+        const manualNewConvId = document.getElementById("ro-new-conv").value.trim();
+        const newConvId = await submitRolloverCoordinator({ summary, newConvId: manualNewConvId });
         closeDialog("dlg-rollover");
         document.getElementById("ro-summary").value = "";
         document.getElementById("ro-new-conv").value = "";
@@ -3751,6 +4296,44 @@
       onId("btn-td-open-conv", "click", () => {
         const t = (state.threads || []).find((x) => x.thread_id === inspectedThreadId);
         if (t?.conversation_id) openConversationInHost(t.conversation_id, t.title);
+      });
+
+      onId("btn-td-refresh-board", "click", () => {
+        if (inspectedThreadId) loadThreadSwarmBoard(inspectedThreadId, { force: true }).catch(() => {});
+      });
+
+      registerFormHandler("form-switch-model", async () => {
+        const threadId = document.getElementById("sm-thread-id").value;
+        const customModel = document.getElementById("sm-custom-model").value.trim();
+        const model = customModel || document.getElementById("sm-model").value;
+        const res = await api("/api/threads/action", {
+          action: "switch_model",
+          threadId,
+          model
+        });
+        document.getElementById("sm-custom-model").value = "";
+        closeDialog("dlg-switch-model");
+        if (res?.relayTimedOut) {
+          showToast(`Model switch queued (${model}; Coordinator relay timed out)`, true);
+        } else {
+          showToast(`Dispatched Swarm model switch to ${model}`);
+        }
+        await refreshState();
+      });
+
+      registerFormHandler("form-kill-worker", async () => {
+        const threadId = document.getElementById("kw-thread-id").value;
+        const res = await api("/api/threads/action", {
+          action: "kill_swarm_worker",
+          threadId
+        });
+        closeDialog("dlg-kill-worker");
+        if (res?.relayTimedOut) {
+          showToast("Kill worker queued (Coordinator relay timed out)", true);
+        } else {
+          showToast("Kill Swarm worker dispatched to Coordinator");
+        }
+        await refreshState();
       });
 
       onId("steer-input", "keydown", (e) => {
@@ -3785,14 +4368,39 @@
         openDialog("dlg-propose-thread");
       });
 
+      function buildNewTaskProposalPayload({ title, role, description, selectedModel }) {
+        const ntModel = String(selectedModel || "inherit").trim() || "inherit";
+        const isLegacyAlias = ntModel === "pro" || ntModel === "flash" || ntModel === "flash_lite";
+        const payload = {
+          title: String(title || "").trim(),
+          role,
+          description: String(description || "").trim()
+        };
+        if (ntModel !== "inherit") {
+          if (isLegacyAlias) {
+            payload.model = ntModel;
+            if (shouldDispatchViaSwarmUi()) payload.swarmModel = ntModel;
+          } else {
+            payload.swarmModel = ntModel;
+          }
+        }
+        return payload;
+      }
+
       registerFormHandler("form-propose-thread", async () => {
-        await api("/api/threads/propose", {
-          proposals: [{
-            title: document.getElementById("pt-title").value.trim(),
-            role: document.getElementById("pt-role").value,
-            description: document.getElementById("pt-desc").value.trim()
-          }]
+        const ntModelEl = document.getElementById("nt-model");
+        const proposal = buildNewTaskProposalPayload({
+          title: document.getElementById("pt-title").value,
+          role: document.getElementById("pt-role").value,
+          description: document.getElementById("pt-desc").value,
+          selectedModel: ntModelEl ? ntModelEl.value : "inherit"
         });
+        await api("/api/threads/propose", {
+          proposals: [proposal]
+        });
+        document.getElementById("pt-title").value = "";
+        document.getElementById("pt-desc").value = "";
+        if (ntModelEl) ntModelEl.value = "inherit";
         closeDialog("dlg-propose-thread");
         showToast("Thread added to Suggested");
         await refreshState();
@@ -4138,7 +4746,8 @@
             maxNewThreadsPerDay: Number(document.getElementById("set-max-daily").value) || 200,
             idleAutoResolveDays: Number(document.getElementById("set-idle-days").value) || 7,
             defaultWorkspaceMode: document.getElementById("set-ws-mode").value,
-            requireApprovalBeforeSpawn: document.getElementById("set-require-approval").checked
+            requireApprovalBeforeSpawn: document.getElementById("set-require-approval").checked,
+            autoSpawnSwarmMonitor: Boolean(document.getElementById("set-auto-swarm-monitor")?.checked)
           },
           memory: {
             useAccountMemory: document.getElementById("set-acct-mem").checked,
