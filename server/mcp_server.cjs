@@ -178,7 +178,7 @@ const TOOLS = [
   },
   {
     name: "propose_threads",
-    description: "Create 'suggested' Worker Thread cards in Project Hub awaiting user approval or batch Start All.",
+    description: "Create 'suggested' Worker Thread cards in Project Hub awaiting user approval or batch Start All, returning deterministic Swarm launch hints.",
     inputSchema: {
       type: "object",
       properties: {
@@ -192,6 +192,7 @@ const TOOLS = [
               description: { type: "string" },
               role: { type: "string", enum: ["explorer", "implementer", "verifier", "pr-fixer", "pr_fixer"] },
               repoId: { type: "string" },
+              swarmModel: { type: "string" },
               workspaceMode: { type: "string", enum: ["inherit", "share", "branch", "worktree"] },
               ownedGlobs: { type: "array", items: { type: "string" } }
             },
@@ -204,7 +205,7 @@ const TOOLS = [
   },
   {
     name: "register_thread",
-    description: "Bind a spawned subagent conversationId to a Worker Thread and transition it to 'working'.",
+    description: "Bind a spawned subagent or Swarm worker conversationId to a Worker Thread and transition it to 'working'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -215,6 +216,10 @@ const TOOLS = [
         role: { type: "string" },
         conversationId: { type: "string" },
         model: { type: "string" },
+        swarmMemberName: { type: "string" },
+        swarmModel: { type: "string" },
+        executionBackend: { type: "string" },
+        swarmOriginCoordinatorId: { type: "string" },
         workspaceMode: { type: "string" },
         repoId: { type: "string" },
         branchName: { type: "string" },
@@ -395,13 +400,53 @@ const TOOLS = [
   },
   {
     name: "get_project_overview",
-    description: "Return full project configuration, thread bucket counts, library mode, memory stats, PRs, and the Project Hub sidecar link.",
+    description: "Return full project configuration, thread bucket counts, library mode, memory stats, PRs, Swarm summary, and the Project Hub sidecar link.",
     inputSchema: {
       type: "object",
       properties: {
         workspacePath: { type: "string" },
         projectId: { type: "string" }
       }
+    }
+  },
+  {
+    name: "claim_hub_dispatch",
+    description: "Atomically claim a pending Hub Swarm dispatch using its dispatchId and single-use nonce, returning the exact swarm(add)/post_message/swarm(model)/swarm(kill) payload and suggestedPlan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspacePath: { type: "string" },
+        dispatchId: { type: "string" },
+        nonce: { type: "string" },
+        matchTtlSeconds: { type: "number" }
+      },
+      required: ["dispatchId", "nonce"]
+    }
+  },
+  {
+    name: "fail_hub_dispatch",
+    description: "Report a non-retryable Coordinator failure to fulfill a pending or claimed Hub Swarm dispatch, releasing reserved quota slots and surfacing the error on the thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspacePath: { type: "string" },
+        dispatchId: { type: "string" },
+        nonce: { type: "string" },
+        reason: { type: "string" }
+      },
+      required: ["dispatchId", "nonce"]
+    }
+  },
+  {
+    name: "get_dispatch_context",
+    description: "Retrieve untrusted external context (e.g., GitHub PR comments/checks) attached to a Hub dispatch outside the public Swarm message board.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspacePath: { type: "string" },
+        dispatchId: { type: "string" }
+      },
+      required: ["dispatchId"]
     }
   }
 ];
@@ -521,7 +566,31 @@ function executeTool(name, args = {}) {
 
     case "propose_threads": {
       const ws = requireWorkspace(args);
-      const threads = db.proposeThreads(ws, args.proposals || []);
+      const rawThreads = db.proposeThreads(ws, args.proposals || []);
+      const cfg = db.loadProjectConfig(ws);
+      const activeSwarm = db.readActiveSwarmState(ws);
+      const existingMembers = { ...(activeSwarm?.members || {}) };
+      const threads = rawThreads.map((t) => {
+        const role = db.normalizeRole(t.role || "explorer");
+        const rawModel =
+          t.swarm_model ??
+          (t.model && t.model !== "inherit" ? t.model : null) ??
+          db.getRoleModelOverride(cfg, role) ??
+          cfg?.models?.defaultThreadModel ??
+          "inherit";
+        const resolvedSwarmModel = db.resolveSwarmModel(rawModel);
+        const resolvedWorkspace = db.resolveSwarmWorkspace(cfg, ws, role, t.workspace_mode);
+        const swarmMemberName =
+          t.swarm_member_name ||
+          db.toSwarmWorkerName(ws, t.thread_id, role, t.title, existingMembers);
+        existingMembers[swarmMemberName] = { name: swarmMemberName };
+        return {
+          ...t,
+          swarmMemberName,
+          resolvedSwarmModel,
+          resolvedWorkspace
+        };
+      });
       notifySidecar(ws);
       return { createdCount: threads.length, threads };
     }
@@ -613,11 +682,44 @@ function executeTool(name, args = {}) {
     }
 
     case "get_project_overview": {
-      const snap = db.buildFullWorkspaceSnapshot(args.workspacePath);
+      const ws = db.resolveActiveWorkspace(args.workspacePath, args.projectId);
+      const snap = db.buildFullWorkspaceSnapshot(ws || args.workspacePath);
       return {
         ...snap,
+        swarm: snap.swarm || {
+          active: false,
+          verifiedCapable: false,
+          backend: null,
+          unsupportedReason: null,
+          coordinatorConversationId: null,
+          title: "",
+          head: 0,
+          counts: { total: 0, working: 0, waiting: 0, killed: 0 },
+          pendingDispatches: []
+        },
         sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
       };
+    }
+
+    case "claim_hub_dispatch": {
+      const ws = requireWorkspace(args);
+      const res = db.claimHubDispatch(ws, args.dispatchId, args.nonce, {
+        matchTtlSeconds: args.matchTtlSeconds
+      });
+      notifySidecar(ws);
+      return res;
+    }
+
+    case "fail_hub_dispatch": {
+      const ws = requireWorkspace(args);
+      const res = db.failHubDispatch(ws, args.dispatchId, args.nonce, args.reason);
+      notifySidecar(ws);
+      return res;
+    }
+
+    case "get_dispatch_context": {
+      const ws = requireWorkspace(args);
+      return db.getDispatchContext(ws, args.dispatchId);
     }
 
     default:

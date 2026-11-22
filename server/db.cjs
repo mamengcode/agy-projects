@@ -5704,6 +5704,24 @@ function buildFullWorkspaceSnapshot(workspacePath) {
     .all();
   const swarmRaw = syncRes?.swarm || swarmSync.readActiveSwarmState(ws);
   const wrapPath = path.join(getProjectDir(ws), "state", "wrapup_checkpoint.md");
+  const isEngineSwarm = (cfg?.orchestration?.executionEngine || "swarm") === "swarm";
+  const coordSwarmDir = cfg?.coordinatorConversationId
+    ? swarmSync.getSwarmDir(getAppDataDir(), String(cfg.coordinatorConversationId))
+    : null;
+  const swarmJsonObj = coordSwarmDir ? readJsonSafe(path.join(coordSwarmDir, "swarm.json"), null) : null;
+  const hasLocalSwarmJson = Boolean(
+    swarmJsonObj && (!swarmJsonObj.backend || swarmJsonObj.backend === "local")
+  );
+  const hasMatchedSwarmDispatchOrThread = Boolean(
+    threads.some((t) => t.execution_backend === "swarm" || Boolean(t.swarm_member_name)) ||
+    db.prepare("SELECT dispatch_id FROM hub_dispatches WHERE status = 'matched' LIMIT 1").get()
+  );
+  const verifiedCapable = Boolean(
+    isEngineSwarm &&
+      !swarmRaw?.unsupportedReason &&
+      (swarmRaw?.active || hasLocalSwarmJson || hasMatchedSwarmDispatchOrThread)
+  );
+  const pendingDispatches = activeDispatches.filter((d) => d.status === "pending");
 
   return {
     initialized: true,
@@ -5736,12 +5754,14 @@ function buildFullWorkspaceSnapshot(workspacePath) {
     snapshots,
     swarm: {
       active: Boolean(swarmRaw?.active),
+      verifiedCapable,
       backend: swarmRaw?.backend || null,
       unsupportedReason: swarmRaw?.unsupportedReason || null,
       coordinatorConversationId: swarmRaw?.coordinatorConversationId || cfg.coordinatorConversationId || null,
       title: swarmRaw?.title || "",
       head: Number(swarmRaw?.head || 0),
-      counts: swarmRaw?.counts || { total: 0, working: 0, waiting: 0, killed: 0 }
+      counts: swarmRaw?.counts || { total: 0, working: 0, waiting: 0, killed: 0 },
+      pendingDispatches
     },
     dispatches: activeDispatches,
     wrapupCheckpoint: fs.existsSync(wrapPath) ? fs.readFileSync(wrapPath, "utf8") : null

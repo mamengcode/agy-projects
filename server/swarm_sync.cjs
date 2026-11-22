@@ -1736,6 +1736,7 @@ module.exports = {
   getThreadBoardMessages,
   syncSwarmIntoProjectDb,
   runImmediateTx,
+  formatSwarmLastMessage,
   oneLine,
   clearSwarmCaches
 };
