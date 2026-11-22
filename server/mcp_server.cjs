@@ -48,6 +48,18 @@ function notifySidecar(workspacePath, extra = {}) {
 }
 
 function requireWorkspace(args = {}) {
+  if (args.workspacePath && db.hasProjectInitialized(args.workspacePath)) {
+    return path.resolve(args.workspacePath);
+  }
+  if (!args.projectId) {
+    const convId = process.env.ANTIGRAVITY_CONVERSATION_ID || "";
+    if (convId) {
+      const binding = db.resolveSessionBinding(convId, args.workspacePath ? [args.workspacePath] : []);
+      if (binding?.bound && binding.workspacePath && db.hasProjectInitialized(binding.workspacePath)) {
+        return path.resolve(binding.workspacePath);
+      }
+    }
+  }
   const ws = db.resolveActiveWorkspace(args.workspacePath, args.projectId);
   if (!ws || !db.hasProjectInitialized(ws)) {
     throw new Error(
@@ -603,8 +615,10 @@ function executeTool(name, args = {}) {
     }
 
     case "update_thread_state": {
-      const ws = requireWorkspace(args);
-      const thread = db.updateThreadState(ws, args);
+      const fallbackConvId = args.conversationId || process.env.ANTIGRAVITY_CONVERSATION_ID || undefined;
+      const mergedArgs = fallbackConvId ? { ...args, conversationId: fallbackConvId } : args;
+      const ws = requireWorkspace(mergedArgs);
+      const thread = db.updateThreadState(ws, mergedArgs);
       notifySidecar(ws);
       return { thread };
     }

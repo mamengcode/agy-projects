@@ -1073,9 +1073,14 @@ function main() {
         const projectDir = db.getProjectDir(workspacePath);
         const inProjectMeta = isInsideDir(targetPath, projectDir);
         const inArtifacts = input.artifactDirectoryPath && isInsideDir(targetPath, input.artifactDirectoryPath);
+        const convBrainDir =
+          db.STRICT_UUID_CONV_RE && db.STRICT_UUID_CONV_RE.test(conversationId)
+            ? path.join(db.getAppDataDir(), "brain", conversationId)
+            : "";
+        const inCoordBrain = Boolean(convBrainDir && isInsideDir(targetPath, convBrainDir));
 
         // Coordinator separation of concerns: delegate application source code mutations to isolated Worker Threads
-        if (role === "coordinator" && !inProjectMeta && !inArtifacts) {
+        if (role === "coordinator" && !inProjectMeta && !inArtifacts && !inCoordBrain) {
           return sendJson({
             decision: "deny",
             reason:

@@ -2744,9 +2744,14 @@ function buildSwarmWorkerBrief({
     } catch {}
   }
 
+  const resolvedThreadId = thread?.thread_id || prMeta?.threadId || "";
   const lines = [];
   lines.push(marker);
   lines.push(`Role: project-${normRole}`);
+  lines.push(`Project Workspace: ${absWs}`);
+  if (resolvedThreadId) {
+    lines.push(`Thread ID: ${resolvedThreadId}`);
+  }
   if (ownedGlobs.length > 0) {
     lines.push(`Owned Globs: ${ownedGlobs.join(", ")}`);
   }
@@ -2776,9 +2781,10 @@ function buildSwarmWorkerBrief({
   lines.push(
     "",
     "## Swarm Completion Protocol",
-    "- Post completion via `post_message`: `@coordinator [done] <concise summary>` followed immediately by `swarm_wait`.",
-    "- If blocked on user/Coordinator input, post `@coordinator [blocked] <question>` followed immediately by `swarm_wait`.",
-    "- Only call `update_thread_state` for PR metadata (`prNumber`, `prUrl`, `watchingAutoFix`) or explicit status updates."
+    `- Pass Project Workspace \`${absWs}\` for MCP calls (\`get_dispatch_context\`, \`upsert_memory\`, \`search_project_library\`, \`update_thread_state\`) and shared \`${absWs}/.agy-project/library/outputs/\` deliverables; keep source edits inside your assigned cwd/worktree.`,
+    "- Post completion via `post_message`: `@coordinator [done] <concise summary>` followed immediately by `swarm_wait(since=<last_read_seq>)` (`0` on Turn 1 if unread).",
+    "- If blocked on user/Coordinator input, post `@coordinator [blocked] <question>` followed immediately by `swarm_wait(since=<last_read_seq>)`.",
+    `- Only call \`update_thread_state(workspacePath=${JSON.stringify(absWs)}${resolvedThreadId ? `, threadId=${JSON.stringify(resolvedThreadId)}` : ""}, ...)\` for PR metadata (\`prNumber\`, \`prUrl\`, \`watchingAutoFix\`) or explicit status overrides.`
   );
 
   return lines.join("\n");
@@ -2876,6 +2882,100 @@ function createHubDispatch(
   };
 }
 
+function clipWords(str, maxWords) {
+  return String(str || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, maxWords)
+    .join(" ");
+}
+
+function buildSuggestedSwarmPlan(dbConn, cfg, absWs, claimedInfo = null) {
+  const goalTitle = clipWords(cfg?.name || cfg?.goal || "Coordinate AGY Project", 8) || "Coordinate AGY Project";
+  const goalLine = clipWords(cfg?.goal || cfg?.name || "Deliver scoped project workstreams.", 12) || goalTitle;
+  const activeSwarm = swarmSync.readActiveSwarmState(absWs, { cfg });
+  const liveMembers = activeSwarm?.members || {};
+  const SYSTEM_ROLE_RE = /^(?:coordinator|narrator|monitor)(?:-\d+)?$/i;
+
+  const coordId = cfg?.coordinatorConversationId || null;
+  const spawnedRows = dbConn
+    .prepare(`
+      SELECT thread_id, title, role, swarm_member_name, swarm_state, conversation_id, swarm_origin_coordinator_id, ui_bucket
+      FROM threads
+      WHERE execution_backend = 'swarm'
+        AND swarm_member_name IS NOT NULL
+        AND (swarm_state IS NULL OR swarm_state != 'killed')
+        AND ui_bucket != 'resolved'
+      ORDER BY updated_at DESC
+    `)
+    .all();
+
+  const membersByName = new Map();
+  for (const [mName, info] of Object.entries(liveMembers)) {
+    if (!mName || SYSTEM_ROLE_RE.test(mName)) continue;
+    if (String(info?.status || "").toLowerCase() === "killed") continue;
+    const matchRow = spawnedRows.find((r) => r.swarm_member_name === mName);
+    membersByName.set(mName, {
+      memberName: mName,
+      role: normalizeRole(matchRow?.role || info?.role || "implementer"),
+      title: clipWords(matchRow?.title || mName, 6) || mName
+    });
+  }
+  for (const row of spawnedRows) {
+    const mName = String(row.swarm_member_name || "").trim();
+    if (!mName || SYSTEM_ROLE_RE.test(mName)) continue;
+    if (coordId && row.swarm_origin_coordinator_id && row.swarm_origin_coordinator_id !== coordId) continue;
+    if (!row.conversation_id && !liveMembers[mName]) continue;
+    if (!membersByName.has(mName)) {
+      membersByName.set(mName, {
+        memberName: mName,
+        role: normalizeRole(row.role || "implementer"),
+        title: clipWords(row.title || mName, 6) || mName
+      });
+    }
+  }
+  if (claimedInfo?.memberName && !SYSTEM_ROLE_RE.test(claimedInfo.memberName)) {
+    membersByName.set(claimedInfo.memberName, {
+      memberName: claimedInfo.memberName,
+      role: normalizeRole(claimedInfo.role || "implementer"),
+      title: clipWords(claimedInfo.title || claimedInfo.memberName, 6) || claimedInfo.memberName
+    });
+  }
+
+  const tasks = {};
+  for (const [mName, entry] of membersByName.entries()) {
+    tasks[mName] = entry.title;
+  }
+
+  const roleGroups = {
+    explorer: { id: "t-explore", title: "Discovery & Mapping", goal: "Map codebase contracts, boundaries, and existing architecture." },
+    implementer: { id: "t-implement", title: "Implementation", goal: "Deliver scoped code changes with tests in isolated workspaces." },
+    verifier: { id: "t-verify", title: "Verification & QA", goal: "Run targeted checks, verify contracts, and audit diffs." },
+    "pr-fixer": { id: "t-pr-fix", title: "PR Remediation", goal: "Resolve failing CI checks, review feedback, and merge conflicts." }
+  };
+
+  const grouped = new Map();
+  for (const [mName, entry] of membersByName.entries()) {
+    const gSpec = roleGroups[entry.role] || {
+      id: "t-general",
+      title: "Active Workstreams",
+      goal: "Execute assigned project tasks cleanly."
+    };
+    if (!grouped.has(gSpec.id)) {
+      grouped.set(gSpec.id, { id: gSpec.id, title: gSpec.title, goal: gSpec.goal, tasks: [] });
+    }
+    grouped.get(gSpec.id).tasks.push(mName);
+  }
+
+  return {
+    goal: { title: goalTitle, line: goalLine },
+    tasks,
+    threads: Array.from(grouped.values()).slice(0, 6)
+  };
+}
+
 /**
  * Atomically claim a pending hub_dispatch via (dispatchId, nonce) and return structured
  * Coordinator action arguments (addArgs / postArgs / modelArgs / killArgs) plus suggestedPlan.
@@ -2964,19 +3064,43 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
       ...(resolvedModel ? { model: resolvedModel } : {}),
       workspace
     };
-    const activeThreads = db
-      .prepare("SELECT thread_id, title, role, ui_bucket, swarm_member_name FROM threads WHERE ui_bucket != 'resolved' ORDER BY updated_at DESC LIMIT 20")
-      .all();
-    const suggestedPlan = {
-      goal: cfg?.goal || "",
-      threads: activeThreads.map((t) => ({
-        threadId: t.thread_id,
-        title: t.title,
-        role: t.role,
-        bucket: t.ui_bucket,
-        member: t.thread_id === claimed.thread_id ? memberName : (t.swarm_member_name || null)
-      }))
-    };
+    const suggestedPlan = buildSuggestedSwarmPlan(db, cfg, absWs, {
+      memberName,
+      title: payload.title || thread?.title || memberName,
+      role
+    });
+    let monitorAddArgs;
+    if (cfg?.orchestration?.autoSpawnSwarmMonitor === true) {
+      const coordId = cfg?.coordinatorConversationId || null;
+      const coordSwarmDir = coordId ? swarmSync.getSwarmDir(getAppDataDir(), String(coordId)) : null;
+      const memJson = coordSwarmDir ? readJsonSafe(path.join(coordSwarmDir, "members.json"), null) : null;
+      const memMap = memJson && isPlainObject(memJson.members) ? memJson.members : {};
+      const isRawMemberKilled = (m) =>
+        Boolean(
+          m?.killed ||
+            m?.desired_state === "KILLED" ||
+            m?.phase === "KILLED" ||
+            String(m?.state || "").toLowerCase() === "killed"
+        );
+      const hasLiveMonitor = Object.entries(memMap).some(
+        ([k, m]) => /^monitor(?:-\d+)?$/i.test(k) && !isRawMemberKilled(m)
+      );
+      if (!hasLiveMonitor) {
+        const usedMonitorLower = new Set(Object.keys(memMap).map((k) => k.toLowerCase()));
+        let monitorName = "monitor";
+        if (usedMonitorLower.has("monitor")) {
+          let suffix = 2;
+          while (usedMonitorLower.has(`monitor-${suffix}`)) suffix++;
+          monitorName = `monitor-${suffix}`;
+        }
+        monitorAddArgs = {
+          action: "add",
+          name: monitorName,
+          workspace: "inherit",
+          brief: "You are the swarm monitor. Read the swarm_monitor skill and check periodically whether the swarm has stalled."
+        };
+      }
+    }
     return {
       ok: true,
       claimed: true,
@@ -2986,6 +3110,7 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
       memberName,
       marker: formatDispatchMarker(claimed.thread_id, claimed.dispatch_id),
       addArgs,
+      ...(monitorAddArgs ? { monitorAddArgs } : {}),
       suggestedPlan,
       matchExpiresAt
     };
