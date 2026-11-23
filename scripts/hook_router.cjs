@@ -1124,10 +1124,67 @@ function main() {
         : sendJson({ decision: "allow" });
     }
 
+    if (toolName === "search_web" || toolName === "read_url_content") {
+      const netPol = cfg?.environment?.networkPolicy || "inherit";
+      if (netPol === "deny") {
+        return sendJson({
+          decision: "deny",
+          reason: "Project Network Policy Guard: Outbound web access is denied by project environment.networkPolicy='deny'."
+        });
+      }
+      if (netPol === "ask") {
+        return sendJson({
+          decision: "ask",
+          reason: "Project Network Policy Guard: Confirm outbound web access (environment.networkPolicy='ask')."
+        });
+      }
+    }
+
+    const getAllowedSandboxRoots = () => {
+      const roots = [workspacePath];
+      if (thread?.worktree_path) roots.push(thread.worktree_path);
+      if (thread?.thread_id) {
+        const safeSlug = String(thread.thread_id).replace(/[^a-zA-Z0-9_-]/g, "-");
+        roots.push(path.join(db.getProjectDir(workspacePath), "worktrees", safeSlug));
+      }
+      if (thread?.worktrees_json) {
+        try {
+          const parsedWt = JSON.parse(thread.worktrees_json);
+          if (parsedWt && typeof parsedWt === "object") {
+            for (const entry of Object.values(parsedWt)) {
+              const p = typeof entry === "string" ? entry : entry?.worktreePath;
+              if (p) roots.push(p);
+            }
+          }
+        } catch {}
+      }
+      if (
+        role === "worker" &&
+        (thread?.workspace_mode === "share" || thread?.workspace_mode === "branch") &&
+        Array.isArray(input.workspacePaths)
+      ) {
+        for (const wp of input.workspacePaths) {
+          if (wp) roots.push(wp);
+        }
+      }
+      if (input.artifactDirectoryPath) roots.push(input.artifactDirectoryPath);
+      if (db.STRICT_UUID_CONV_RE && db.STRICT_UUID_CONV_RE.test(conversationId)) {
+        roots.push(path.join(db.getAppDataDir(), "brain", conversationId));
+      }
+      try {
+        const repoRows = sql.prepare("SELECT local_path FROM repositories").all();
+        for (const r of repoRows) {
+          if (r?.local_path) roots.push(r.local_path);
+        }
+      } catch {}
+      return roots.filter(Boolean);
+    };
+
     if (toolName === "run_command") {
       const cmd = String(args.CommandLine || args.command || "");
       const invocations = extractCommandInvocations(cmd);
-      if (cfg?.environment?.networkPolicy === "deny" && invocations.some(isNetworkCommand)) {
+      const netPol = cfg?.environment?.networkPolicy || "inherit";
+      if (netPol === "deny" && invocations.some(isNetworkCommand)) {
         return sendJson({
           decision: "deny",
           reason: "Project Network Policy Guard: Outbound network commands are denied by project environment.networkPolicy='deny'."
@@ -1144,6 +1201,24 @@ function main() {
         return sendJson({
           decision: "deny",
           reason: "Read-Only Role Guard: explorer/verifier threads cannot mutate git branches or history."
+        });
+      }
+      if (cfg?.environment?.sandboxMode === "enabled") {
+        const cmdCwd = String(args.Cwd || args.cwd || input.cwd || "").trim();
+        if (cmdCwd) {
+          const sandboxRoots = getAllowedSandboxRoots();
+          if (!sandboxRoots.some((root) => isInsideDir(cmdCwd, root))) {
+            return sendJson({
+              decision: "deny",
+              reason: `Project Sandbox Guard: Command Cwd '${cmdCwd}' outside the project workspace/worktree is blocked by environment.sandboxMode='enabled'.`
+            });
+          }
+        }
+      }
+      if (netPol === "ask" && invocations.some(isNetworkCommand)) {
+        return sendJson({
+          decision: "ask",
+          reason: "Project Network Policy Guard: Confirm outbound network command (environment.networkPolicy='ask')."
         });
       }
     }
@@ -1167,6 +1242,17 @@ function main() {
             reason:
               'Coordinator Separation Guard: Coordinator sessions manage specs, memory, and orchestration, and must delegate application source edits to an isolated Worker Thread via swarm{action:"add", ...}.'
           });
+        }
+
+        // Project Sandbox Mode: restrict file edits/writes strictly to project workspace, worktrees, bound repos, and artifacts
+        if (cfg?.environment?.sandboxMode === "enabled") {
+          const sandboxRoots = getAllowedSandboxRoots();
+          if (!sandboxRoots.some((root) => isInsideDir(targetPath, root))) {
+            return sendJson({
+              decision: "deny",
+              reason: `Project Sandbox Guard: File write to '${targetPath}' outside the project workspace/worktree is blocked by environment.sandboxMode='enabled'.`
+            });
+          }
         }
 
         // Shared-workspace Worker Thread glob ownership check

@@ -452,6 +452,9 @@ class BuiltinTools:
     FIND_FILE = EnumVal("find_file")
     VIEW_FILE = EnumVal("view_file")
     FINISH = EnumVal("finish")
+    SEARCH_WEB = EnumVal("search_web")
+    READ_URL_CONTENT = EnumVal("read_url_content")
+    RUN_COMMAND = EnumVal("run_command")
 
 class CapabilitiesConfig:
     def __init__(self, **kw): self.kw = kw
@@ -464,7 +467,7 @@ class McpStdioServer:
 
 class PolicyNS:
     def workspace_only(self, ws): return [("workspace_only", ws)]
-    def deny(self, srv, tools): return [("deny", tools)]
+    def deny(self, target, tools=None, **kw): return [("deny", target, tools, kw)] if tools is not None else ("deny", target, kw)
     def allow_all(self): return ("allow_all",)
     def deny_all(self): return ("deny_all",)
     def allow(self, *a): return [("allow", a)] if len(a) == 2 else ("allow", a[0])
@@ -490,6 +493,38 @@ wr_cfg = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys"
 wr_srv = wr_cfg.kw["mcp_servers"][0].kw
 assert wr_srv["env"]["GEMINI_API_KEY"] == "test-proj-gemini-key"
 assert wr_srv["env"]["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve())
+assert any(isinstance(p, tuple) and p[0] == "workspace_only" for p in wr_cfg.kw["policies"])
+
+# GAP-06: verify sandboxMode & networkPolicy enforcement in headless build_local_agent_config
+assert rw.is_headless_network_command_call({"CommandLine": "curl https://example.com"}) is True
+assert rw.is_headless_network_command_call({"CommandLine": "echo hi && git push origin main"}) is True
+assert rw.is_headless_network_command_call({"CommandLine": "ls -la"}) is False
+assert rw.is_headless_network_command_call({"CommandLine": "rg http src/"}) is False
+assert rw.is_headless_network_command_call({"CommandLine": "echo curl"}) is False
+assert rw.is_headless_network_command_call({"CommandLine": 'git commit -m "fix ssh"'}) is False
+
+cfg_file = Path(${JSON.stringify(ws)}) / ".agy-project" / "config.json"
+raw_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+
+# sandboxMode=enabled + networkPolicy=deny -> workspace_only in both write & readonly, network tools denied
+raw_cfg["environment"]["sandboxMode"] = "enabled"
+raw_cfg["environment"]["networkPolicy"] = "deny"
+cfg_file.write_text(json.dumps(raw_cfg), encoding="utf-8")
+wr_deny = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+assert any(isinstance(p, tuple) and p[0] == "workspace_only" for p in wr_deny.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "search_web" for p in wr_deny.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "read_url_content" for p in wr_deny.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "run_command" and callable(p[2].get("when")) for p in wr_deny.kw["policies"])
+ro_sb = rw.build_local_agent_config("readonly", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+assert any(isinstance(p, tuple) and p[0] == "workspace_only" for p in ro_sb.kw["policies"])
+
+# sandboxMode=disabled + networkPolicy=ask -> workspace_only omitted, non-interactive network denied with ask reason
+raw_cfg["environment"]["sandboxMode"] = "disabled"
+raw_cfg["environment"]["networkPolicy"] = "ask"
+cfg_file.write_text(json.dumps(raw_cfg), encoding="utf-8")
+wr_ask = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+assert not any(isinstance(p, tuple) and p[0] == "workspace_only" for p in wr_ask.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "search_web" and "ask" in p[2].get("reason", "") for p in wr_ask.kw["policies"])
 
 print(json.dumps({"ok": True}))
 `;

@@ -737,6 +737,52 @@ WRITE_ADMIN_DISABLED_MCP_TOOLS = [
 ]
 
 
+def load_project_environment_policy(workspace: Path | None) -> dict[str, str]:
+    policy_out = {"sandboxMode": "inherit", "networkPolicy": "inherit"}
+    if workspace is None:
+        return policy_out
+    cfg_path = Path(workspace).resolve() / ".agy-project" / "config.json"
+    if not cfg_path.exists():
+        return policy_out
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        env_cfg = cfg.get("environment") or {}
+        if isinstance(env_cfg, dict):
+            sm = str(env_cfg.get("sandboxMode") or "inherit").strip()
+            if sm in ("inherit", "enabled", "disabled"):
+                policy_out["sandboxMode"] = sm
+            np = str(env_cfg.get("networkPolicy") or "inherit").strip()
+            if np in ("inherit", "allow", "ask", "deny"):
+                policy_out["networkPolicy"] = np
+    except Exception:
+        pass
+    return policy_out
+
+
+_HEADLESS_NETWORK_CMD_RE = re.compile(
+    r"(?:^|(?:&&|\|\||[;&|\n])\s*)"
+    r"(?:(?:sudo|command)\s+|env\s+(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*)*"
+    r"(?:"
+    r"(?:curl|wget|http|https|ssh|scp|sftp|rsync|nc|ncat|netcat|gh)\b"
+    r"|git\s+(?:push|fetch|pull|clone|ls-remote)\b"
+    r"|(?:npm|pnpm|yarn)\s+(?:install|i|add|ci|publish|update)\b"
+    r"|(?:pip|pip3)\s+install\b"
+    r"|uv\s+(?:pip|sync|add)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def is_headless_network_command_call(call: object) -> bool:
+    args = getattr(call, "args", None)
+    if args is None and isinstance(call, dict):
+        args = call.get("args", call)
+    if not isinstance(args, dict):
+        return False
+    cmd = str(args.get("CommandLine") or args.get("command") or "")
+    return bool(_HEADLESS_NETWORK_CMD_RE.search(cmd))
+
+
 def build_local_agent_config(
     mode: str,
     cwd: Path,
@@ -749,8 +795,13 @@ def build_local_agent_config(
     from google.antigravity.types import McpStdioServer
 
     resolved_cwd = str(Path(cwd).resolve())
+    proj_ws = workspace if workspace is not None else cwd
     mcp_server_path = str(Path(__file__).resolve().parent / "mcp_server.cjs")
-    mcp_env = build_mcp_server_env(workspace if workspace is not None else cwd)
+    mcp_env = build_mcp_server_env(proj_ws)
+    env_policy = load_project_environment_policy(proj_ws)
+    sandbox_mode = env_policy["sandboxMode"]
+    network_policy = env_policy["networkPolicy"]
+
     kwargs: dict = {
         "system_instructions": system_instructions,
         "workspaces": [resolved_cwd],
@@ -787,11 +838,30 @@ def build_local_agent_config(
         )
         kwargs["mcp_servers"] = [mcp_server]
         kwargs["capabilities"] = CapabilitiesConfig(enable_subagents=False)
-        kwargs["policies"] = [
-            *policy.workspace_only([resolved_cwd]),
-            *policy.deny(mcp_server, list(WRITE_ADMIN_DISABLED_MCP_TOOLS)),
-            policy.allow_all(),
-        ]
+        write_policies = []
+        if sandbox_mode != "disabled":
+            write_policies.extend(policy.workspace_only([resolved_cwd]))
+        write_policies.extend(policy.deny(mcp_server, list(WRITE_ADMIN_DISABLED_MCP_TOOLS)))
+        if network_policy in ("deny", "ask"):
+            net_reason = (
+                "Outbound network access denied by project environment.networkPolicy='deny'."
+                if network_policy == "deny"
+                else "Outbound network access blocked in non-interactive headless worker because project environment.networkPolicy='ask' requires interactive confirmation."
+            )
+            if hasattr(BuiltinTools, "SEARCH_WEB"):
+                write_policies.append(policy.deny(BuiltinTools.SEARCH_WEB.value, reason=net_reason))
+            if hasattr(BuiltinTools, "READ_URL_CONTENT"):
+                write_policies.append(policy.deny(BuiltinTools.READ_URL_CONTENT.value, reason=net_reason))
+            if hasattr(BuiltinTools, "RUN_COMMAND"):
+                write_policies.append(
+                    policy.deny(
+                        BuiltinTools.RUN_COMMAND.value,
+                        when=is_headless_network_command_call,
+                        reason=net_reason,
+                    )
+                )
+        write_policies.append(policy.allow_all())
+        kwargs["policies"] = write_policies
     else:
         mcp_server = McpStdioServer(
             name="agy_projects_mcp",
@@ -810,15 +880,21 @@ def build_local_agent_config(
                 BuiltinTools.VIEW_FILE,
             ],
         )
-        kwargs["policies"] = [
-            policy.deny_all(),
-            policy.allow(BuiltinTools.LIST_DIR.value),
-            policy.allow(BuiltinTools.SEARCH_DIR.value),
-            policy.allow(BuiltinTools.FIND_FILE.value),
-            policy.allow(BuiltinTools.VIEW_FILE.value),
-            policy.allow(BuiltinTools.FINISH.value),
-            *policy.allow(mcp_server, list(READONLY_MCP_TOOLS)),
-        ]
+        ro_policies = []
+        if sandbox_mode == "enabled":
+            ro_policies.extend(policy.workspace_only([resolved_cwd]))
+        ro_policies.extend(
+            [
+                policy.deny_all(),
+                policy.allow(BuiltinTools.LIST_DIR.value),
+                policy.allow(BuiltinTools.SEARCH_DIR.value),
+                policy.allow(BuiltinTools.FIND_FILE.value),
+                policy.allow(BuiltinTools.VIEW_FILE.value),
+                policy.allow(BuiltinTools.FINISH.value),
+                *policy.allow(mcp_server, list(READONLY_MCP_TOOLS)),
+            ]
+        )
+        kwargs["policies"] = ro_policies
 
     return LocalAgentConfig(**kwargs)
 

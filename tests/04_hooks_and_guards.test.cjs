@@ -384,6 +384,141 @@ test("Hook router guards (AT-01..AT-05, SessionStart, PreInvocation, PreToolUse,
     assert.ok(telemetry.some((e) => e.tool === "edit_file"), "edit_file telemetry not recorded");
   });
 
+  await t.test("GAP-06: PreToolUse enforces networkPolicy (deny/ask/allow) and sandboxMode (enabled/disabled)", () => {
+    const hooksCfg = JSON.parse(fs.readFileSync(path.join(env.REPO_ROOT, "hooks.json"), "utf8"));
+    const preMatcher = hooksCfg["agy-projects-lifecycle"].PreToolUse[0].matcher.split("|");
+    assert.ok(preMatcher.includes("search_web"), "search_web missing from PreToolUse matcher");
+    assert.ok(preMatcher.includes("read_url_content"), "read_url_content missing from PreToolUse matcher");
+
+    // Create a share-mode worker (no ownedGlobs) for sandbox testing
+    const sbConv = "worker-sandbox-1";
+    db.registerThread(ws, {
+      role: "implementer",
+      title: "Sandbox Worker",
+      conversationId: sbConv,
+      workspaceMode: "share"
+    });
+
+    // 1. networkPolicy = "deny" blocks search_web, read_url_content, and curl
+    db.updateProjectSettings(ws, { environment: { networkPolicy: "deny", sandboxMode: "inherit" } });
+    assert.equal(
+      env.callHook({
+        hookEventName: "PreToolUse",
+        conversationId: sbConv,
+        workspacePaths: [ws],
+        toolCall: { name: "search_web", args: { query: "docs" } }
+      }).decision,
+      "deny"
+    );
+    assert.equal(
+      env.callHook({
+        hookEventName: "PreToolUse",
+        conversationId: sbConv,
+        workspacePaths: [ws],
+        toolCall: { name: "read_url_content", args: { Url: "https://example.com" } }
+      }).decision,
+      "deny"
+    );
+
+    // 2. networkPolicy = "ask" prompts on web tools & curl, allows local commands, never downgrades hard denies
+    db.updateProjectSettings(ws, { environment: { networkPolicy: "ask" } });
+    const askWeb = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [ws],
+      toolCall: { name: "search_web", args: { query: "docs" } }
+    });
+    assert.equal(askWeb.decision, "ask");
+    assert.match(askWeb.reason, /networkPolicy='ask'/);
+
+    const askCurl = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [ws],
+      toolCall: { name: "run_command", args: { CommandLine: "curl https://example.com" } }
+    });
+    assert.equal(askCurl.decision, "ask");
+
+    const allowLs = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [ws],
+      toolCall: { name: "run_command", args: { CommandLine: "ls -la" } }
+    });
+    assert.equal(allowLs.decision, "allow");
+
+    // 3. networkPolicy = "allow" permits web tools & curl
+    db.updateProjectSettings(ws, { environment: { networkPolicy: "allow" } });
+    assert.equal(
+      env.callHook({
+        hookEventName: "PreToolUse",
+        conversationId: sbConv,
+        workspacePaths: [ws],
+        toolCall: { name: "search_web", args: { query: "docs" } }
+      }).decision,
+      "allow"
+    );
+    assert.equal(
+      env.callHook({
+        hookEventName: "PreToolUse",
+        conversationId: sbConv,
+        workspacePaths: [ws],
+        toolCall: { name: "run_command", args: { CommandLine: "curl https://example.com" } }
+      }).decision,
+      "allow"
+    );
+
+    // 4. sandboxMode = "enabled" blocks writes and command Cwd outside workspace, permits inside workspace & share clone root
+    db.updateProjectSettings(ws, { environment: { sandboxMode: "enabled" } });
+    const shareCloneRoot = env.makeWorkspace("share-clone-worker");
+    const outsidePath = path.join(env.tmpRoot, "outside-sandbox.txt");
+    const sbDenyWrite = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [shareCloneRoot],
+      toolCall: { name: "write_file", args: { Path: outsidePath, Content: "x" } }
+    });
+    assert.equal(sbDenyWrite.decision, "deny");
+    assert.match(sbDenyWrite.reason, /Project Sandbox Guard/);
+
+    const sbAllowShareClone = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [shareCloneRoot],
+      toolCall: { name: "write_file", args: { Path: path.join(shareCloneRoot, "src", "feature.js"), Content: "ok" } }
+    });
+    assert.equal(sbAllowShareClone.decision, "allow");
+
+    const sbDenyInputCwd = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [shareCloneRoot],
+      cwd: env.tmpRoot,
+      toolCall: { name: "run_command", args: { CommandLine: "ls" } }
+    });
+    assert.equal(sbDenyInputCwd.decision, "deny");
+    assert.match(sbDenyInputCwd.reason, /Project Sandbox Guard/);
+
+    const sbAllowInside = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [shareCloneRoot],
+      cwd: shareCloneRoot,
+      toolCall: { name: "write_file", args: { Path: path.join(ws, "inside.txt"), Content: "ok" } }
+    });
+    assert.equal(sbAllowInside.decision, "allow");
+
+    // 5. sandboxMode = "disabled" relaxes external path boundary
+    db.updateProjectSettings(ws, { environment: { sandboxMode: "disabled" } });
+    const sbDisabledAllow = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: sbConv,
+      workspacePaths: [ws],
+      toolCall: { name: "write_file", args: { Path: outsidePath, Content: "x" } }
+    });
+    assert.equal(sbDisabledAllow.decision, "allow");
+  });
+
   await t.test("AT-05: paused project hard-stops PreInvocation/PreToolUse mutations", () => {
     db.transitionProjectLifecycle(ws, { status: "paused" });
     const pausedPre = env.callHook({

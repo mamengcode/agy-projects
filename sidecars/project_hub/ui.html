@@ -1148,18 +1148,18 @@
                 <div class="field">
                   <label for="set-sandbox-mode">Sandbox Mode</label>
                   <select id="set-sandbox-mode" name="sandboxMode">
-                    <option value="inherit">inherit</option>
-                    <option value="enabled">enabled</option>
-                    <option value="disabled">disabled</option>
+                    <option value="inherit">inherit (Host Default / Workspace-Only Headless)</option>
+                    <option value="enabled">enabled (Enforce Workspace Boundary)</option>
+                    <option value="disabled">disabled (Allow External Paths)</option>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-network-policy">Network Policy</label>
                   <select id="set-network-policy" name="networkPolicy">
-                    <option value="inherit">inherit</option>
+                    <option value="inherit">inherit (Host Default)</option>
                     <option value="allow">allow</option>
-                    <option value="ask">ask</option>
-                    <option value="deny">deny</option>
+                    <option value="ask">ask (Prompt Interactive / Block Headless)</option>
+                    <option value="deny">deny (Block All Outbound Network)</option>
                   </select>
                 </div>
               </div>
