@@ -600,12 +600,7 @@ function executeTool(name, args = {}) {
       const existingMembers = { ...(activeSwarm?.members || {}) };
       const threads = rawThreads.map((t) => {
         const role = db.normalizeRole(t.role || "explorer");
-        const rawModel =
-          t.swarm_model ??
-          (t.model && t.model !== "inherit" ? t.model : null) ??
-          db.getRoleModelOverride(cfg, role) ??
-          cfg?.models?.defaultThreadModel ??
-          "inherit";
+        const rawModel = db.resolveConfiguredThreadModel(cfg, role, t.swarm_model, t.model);
         const resolvedSwarmModel = db.resolveSwarmModel(rawModel);
         const resolvedWorkspace = db.resolveSwarmWorkspace(cfg, ws, role, t.workspace_mode);
         const swarmMemberName =

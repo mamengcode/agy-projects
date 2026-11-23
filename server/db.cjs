@@ -51,10 +51,32 @@ function isMutatingRole(role) {
   return norm === "implementer" || norm === "pr-fixer";
 }
 
+function normalizeExplicitModel(val) {
+  const trimmed = typeof val === "string" ? val.trim() : "";
+  if (!trimmed || trimmed === "inherit") return null;
+  return trimmed;
+}
+
 function getRoleModelOverride(cfg, role) {
   const overrides = cfg?.models?.roleOverrides || {};
   const norm = normalizeRole(role);
-  return overrides[norm] ?? (norm === "pr-fixer" ? overrides["pr_fixer"] : undefined) ?? overrides[role];
+  return (
+    normalizeExplicitModel(overrides[norm]) ??
+    (norm === "pr-fixer" ? normalizeExplicitModel(overrides["pr_fixer"]) : null) ??
+    normalizeExplicitModel(overrides[role])
+  );
+}
+
+function resolveConfiguredThreadModel(cfg, role, ...explicitCandidates) {
+  for (const cand of explicitCandidates) {
+    const norm = normalizeExplicitModel(cand);
+    if (norm) return norm;
+  }
+  const roleOverride = getRoleModelOverride(cfg, role);
+  if (roleOverride) return roleOverride;
+  const defModel = normalizeExplicitModel(cfg?.models?.defaultThreadModel);
+  if (defModel) return defModel;
+  return "inherit";
 }
 
 /**
@@ -87,21 +109,26 @@ function normalizeHeadlessCandidate(val) {
  * Never leaks effort-suffixed or non-Gemini Swarm IDs (e.g. claude-opus-5-5-medium).
  */
 function resolveHeadlessModel(thread, cfg) {
-  const tModel = String(thread?.model || "").trim();
-  if (tModel && tModel !== "inherit") {
+  const tSwarm = normalizeExplicitModel(thread?.swarm_model);
+  if (tSwarm) {
+    const mapped = normalizeHeadlessCandidate(tSwarm);
+    if (mapped) return mapped;
+  }
+  const tModel = normalizeExplicitModel(thread?.model);
+  if (tModel) {
     const mapped = normalizeHeadlessCandidate(tModel);
     if (mapped) return mapped;
   }
   const role = thread?.role ? normalizeRole(thread.role) : null;
   if (role) {
     const roleOverride = getRoleModelOverride(cfg, role);
-    if (roleOverride && roleOverride !== "inherit") {
+    if (roleOverride) {
       const mapped = normalizeHeadlessCandidate(roleOverride);
       if (mapped) return mapped;
     }
   }
-  const defModel = String(cfg?.models?.defaultThreadModel || "").trim();
-  if (defModel && defModel !== "inherit") {
+  const defModel = normalizeExplicitModel(cfg?.models?.defaultThreadModel);
+  if (defModel) {
     const mapped = normalizeHeadlessCandidate(defModel);
     if (mapped) return mapped;
   }
@@ -113,19 +140,23 @@ function resolveHeadlessModel(thread, cfg) {
  * Converts/rejects concrete Swarm IDs via roleOverride / defaultThreadModel / 'inherit'.
  */
 function resolveSubagentModel(thread, cfg) {
-  const tModel = String(thread?.model || "").trim();
-  if (tModel && tModel !== "inherit" && SUBAGENT_MODEL_TIERS.has(tModel)) {
+  const tSwarm = normalizeExplicitModel(thread?.swarm_model);
+  if (tSwarm && SUBAGENT_MODEL_TIERS.has(tSwarm)) {
+    return tSwarm;
+  }
+  const tModel = normalizeExplicitModel(thread?.model);
+  if (tModel && SUBAGENT_MODEL_TIERS.has(tModel)) {
     return tModel;
   }
   const role = thread?.role ? normalizeRole(thread.role) : null;
   if (role) {
-    const roleOverride = String(getRoleModelOverride(cfg, role) || "").trim();
-    if (roleOverride && roleOverride !== "inherit" && SUBAGENT_MODEL_TIERS.has(roleOverride)) {
+    const roleOverride = getRoleModelOverride(cfg, role);
+    if (roleOverride && SUBAGENT_MODEL_TIERS.has(roleOverride)) {
       return roleOverride;
     }
   }
-  const defModel = String(cfg?.models?.defaultThreadModel || "").trim();
-  if (defModel && defModel !== "inherit" && SUBAGENT_MODEL_TIERS.has(defModel)) {
+  const defModel = normalizeExplicitModel(cfg?.models?.defaultThreadModel);
+  if (defModel && SUBAGENT_MODEL_TIERS.has(defModel)) {
     return defModel;
   }
   return "inherit";
@@ -769,11 +800,17 @@ function loadProjectConfig(workspacePath) {
   if (sharing.visibility === "team" || sharing.visibility === "public") {
     sharing.visibility = "organization";
   }
+  const cleanRoleOverrides = {};
+  for (const [k, v] of Object.entries(raw.models?.roleOverrides || {})) {
+    const nk = normalizeRole(k);
+    const nv = normalizeExplicitModel(v);
+    if (nv) cleanRoleOverrides[nk] = nv;
+  }
   return {
     ...base,
     ...raw,
     memory: { ...base.memory, ...(raw.memory || {}) },
-    models: { ...base.models, ...(raw.models || {}), roleOverrides: { ...(raw.models?.roleOverrides || {}) } },
+    models: { ...base.models, ...(raw.models || {}), roleOverrides: cleanRoleOverrides },
     orchestration: { ...base.orchestration, ...(raw.orchestration || {}) },
     environment: { ...base.environment, ...(raw.environment || {}) },
     sharing
@@ -985,14 +1022,29 @@ function updateProjectSettings(workspacePath, patch = {}) {
     if (!isPlainObject(nextRoleOverrides)) {
       throw new Error("models.roleOverrides must be an object.");
     }
-    const mergedOverrides = { ...(cfg.models.roleOverrides || {}) };
+    const mergedOverrides = {};
+    for (const [k, v] of Object.entries(cfg.models.roleOverrides || {})) {
+      const nk = normalizeRole(k);
+      const nv = normalizeExplicitModel(v);
+      if (nv) mergedOverrides[nk] = nv;
+    }
     for (const [rawRole, rawModel] of Object.entries(nextRoleOverrides)) {
+      if (rawModel === undefined) continue;
       const normRole = normalizeRole(rawRole);
+      if (rawModel === null || rawModel === "") {
+        delete mergedOverrides[normRole];
+        if (rawRole === "pr_fixer") delete mergedOverrides.pr_fixer;
+        continue;
+      }
       const trimmed = typeof rawModel === "string" ? rawModel.trim() : "";
       if (!trimmed || !VALID_MODEL_ID_RE.test(trimmed)) {
         throw new Error(`Invalid model '${rawModel}' in models.roleOverrides['${rawRole}'].`);
       }
-      mergedOverrides[normRole] = trimmed;
+      if (trimmed === "inherit") {
+        delete mergedOverrides[normRole];
+      } else {
+        mergedOverrides[normRole] = trimmed;
+      }
       if (rawRole === "pr_fixer" && Object.prototype.hasOwnProperty.call(mergedOverrides, "pr_fixer")) {
         delete mergedOverrides.pr_fixer;
       }
@@ -2472,9 +2524,8 @@ function proposeThreads(workspacePath, proposals = []) {
   for (const p of proposals) {
     const id = p.threadId || `t-${crypto.randomUUID().slice(0, 8)}`;
     const role = normalizeRole(p.role || "explorer");
-    const rawDefaultModel = getRoleModelOverride(cfg, role) || cfg?.models?.defaultThreadModel || "inherit";
-    const model = p.model || rawDefaultModel;
-    const swarmModel = p.swarmModel !== undefined ? (p.swarmModel || null) : null;
+    const swarmModel = p.swarmModel !== undefined ? normalizeExplicitModel(p.swarmModel) : null;
+    const model = resolveConfiguredThreadModel(cfg, role, p.model, swarmModel);
     const wsMode = p.workspaceMode || (role === "explorer" ? "inherit" : (cfg?.orchestration?.defaultWorkspaceMode || "share"));
     stmt.run(
       id,
@@ -3033,13 +3084,14 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
       db.prepare("UPDATE hub_dispatches SET target_member_name = ? WHERE dispatch_id = ?")
         .run(memberName, claimed.dispatch_id);
     }
-    const rawModel =
-      payload.swarmModel ??
-      thread?.swarm_model ??
-      (thread?.model && thread.model !== "inherit" ? thread.model : null) ??
-      getRoleModelOverride(cfg, role) ??
-      cfg?.models?.defaultThreadModel ??
-      "inherit";
+    const useThreadModel = !thread?.role || normalizeRole(thread.role) === role;
+    const rawModel = resolveConfiguredThreadModel(
+      cfg,
+      role,
+      payload.swarmModel,
+      useThreadModel ? thread?.swarm_model : null,
+      useThreadModel ? thread?.model : null
+    );
     const resolvedModel = resolveSwarmModel(rawModel);
     const workspace = resolveSwarmWorkspace(
       cfg,
@@ -3367,7 +3419,6 @@ function registerThread(workspacePath, payload) {
   checkThreadQuota(workspacePath, { skipCounts: Boolean(existing && existing.ui_bucket === "working") });
 
   const role = normalizeRole(payload.role || "implementer");
-  const model = payload.model || getRoleModelOverride(cfg, role) || cfg?.models?.defaultThreadModel || "inherit";
   const wsMode = payload.workspaceMode || cfg?.orchestration?.defaultWorkspaceMode || "share";
   const validatedWorktreePath = payload.worktreePath
     ? validateWorktreePath(workspacePath, payload.worktreePath, db)
@@ -3376,7 +3427,11 @@ function registerThread(workspacePath, payload) {
     ? String(payload.executionBackend)
     : existing?.execution_backend || "subagent";
   const swarmMemberName = payload.swarmMemberName !== undefined ? (payload.swarmMemberName || null) : (existing?.swarm_member_name || null);
-  const swarmModel = payload.swarmModel !== undefined ? (payload.swarmModel || null) : (existing?.swarm_model || null);
+  const swarmModel =
+    payload.swarmModel !== undefined
+      ? normalizeExplicitModel(payload.swarmModel)
+      : normalizeExplicitModel(existing?.swarm_model);
+  const model = resolveConfiguredThreadModel(cfg, role, payload.model, swarmModel, existing?.model);
   const swarmState = payload.swarmState !== undefined ? (payload.swarmState || null) : (existing?.swarm_state || null);
   const swarmOriginCoordId =
     payload.swarmOriginCoordinatorId !== undefined
@@ -4481,7 +4536,8 @@ function createPendingRoutineThread(
   const ts = nowIso();
   const id = `t-${crypto.randomUUID().slice(0, 8)}`;
   const normRole = normalizeRole(role);
-  const resolvedModel = model || getRoleModelOverride(cfg, normRole) || cfg?.models?.defaultThreadModel || "inherit";
+  const normSwarmModel = normalizeExplicitModel(swarmModel);
+  const resolvedModel = resolveConfiguredThreadModel(cfg, normRole, model, normSwarmModel);
   const coordId = coordinatorConversationId ?? cfg?.coordinatorConversationId ?? null;
   db.prepare(`
     INSERT INTO threads (
@@ -4495,7 +4551,7 @@ function createPendingRoutineThread(
     String(description || ""),
     normRole,
     resolvedModel,
-    swarmModel || null,
+    normSwarmModel,
     workspaceMode || (isMutatingRole(normRole) ? (cfg?.orchestration?.defaultWorkspaceMode || "share") : "inherit"),
     `project/${id}`,
     coordId,
@@ -5940,7 +5996,9 @@ module.exports = {
   parseDispatchMarker,
   normalizeRole,
   isMutatingRole,
+  normalizeExplicitModel,
   getRoleModelOverride,
+  resolveConfiguredThreadModel,
   resolveSwarmModel,
   resolveHeadlessModel,
   resolveSubagentModel,

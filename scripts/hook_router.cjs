@@ -963,9 +963,24 @@ function main() {
       const targetThread = parsedMarker
         ? sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(parsedMarker.threadId)
         : null;
-      const roleKey = targetThread?.role
-        ? db.normalizeRole(targetThread.role)
-        : inferRoleFromSwarmArgs(targetName, args.brief);
+      const targetDispatch = parsedMarker?.dispatchId
+        ? sql.prepare("SELECT action, payload_json FROM hub_dispatches WHERE dispatch_id = ?").get(parsedMarker.dispatchId)
+        : null;
+      let dispatchPayloadRole = null;
+      if (targetDispatch) {
+        try {
+          const dp = JSON.parse(targetDispatch.payload_json || "{}");
+          if (dp?.role) dispatchPayloadRole = db.normalizeRole(dp.role);
+        } catch {}
+        if (!dispatchPayloadRole && targetDispatch.action === "pr_autofix") {
+          dispatchPayloadRole = "pr-fixer";
+        }
+      }
+      const roleKey = dispatchPayloadRole
+        ? dispatchPayloadRole
+        : targetThread?.role
+          ? db.normalizeRole(targetThread.role)
+          : inferRoleFromSwarmArgs(targetName, args.brief);
 
       const overwrite = {};
       const isWorkerAdHocHelper = role === "worker" && !parsedMarker;
@@ -979,14 +994,14 @@ function main() {
           }
         }
       } else {
-        const rawModelSetting =
-          args.model && args.model !== "inherit"
-            ? args.model
-            : (targetThread?.swarm_model ??
-              (targetThread?.model && targetThread.model !== "inherit" ? targetThread.model : null) ??
-              db.getRoleModelOverride(cfg, roleKey) ??
-              cfg?.models?.defaultThreadModel ??
-              "inherit");
+        const useTargetThreadModel = !targetThread?.role || db.normalizeRole(targetThread.role) === roleKey;
+        const rawModelSetting = db.resolveConfiguredThreadModel(
+          cfg,
+          roleKey,
+          args.model,
+          useTargetThreadModel ? targetThread?.swarm_model : null,
+          useTargetThreadModel ? targetThread?.model : null
+        );
         const resolvedSwarmModel = db.resolveSwarmModel(rawModelSetting);
         if ((!args.model || args.model === "inherit") && resolvedSwarmModel) {
           overwrite.model = resolvedSwarmModel;

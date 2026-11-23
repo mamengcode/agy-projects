@@ -1591,7 +1591,11 @@ const server = http.createServer(async (req, res) => {
               title: row.title,
               prompt: body.prompt || row.description,
               workspaceMode: row.workspace_mode,
-              swarmModel: body.swarmModel || row.swarm_model || (row.model && row.model !== "inherit" ? row.model : null)
+              swarmModel:
+                db.normalizeExplicitModel(body.swarmModel) ||
+                db.normalizeExplicitModel(row.swarm_model) ||
+                db.normalizeExplicitModel(row.model) ||
+                null
             },
             baselineHeadSeq: db.getSwarmBoardHeadSync(ws, row),
             reservedSlots: row.ui_bucket === "working" ? 0 : 1
@@ -1679,7 +1683,10 @@ const server = http.createServer(async (req, res) => {
                   title: row.title,
                   prompt: row.description,
                   workspaceMode: row.workspace_mode,
-                  swarmModel: row.swarm_model || (row.model && row.model !== "inherit" ? row.model : null)
+                  swarmModel:
+                    db.normalizeExplicitModel(row.swarm_model) ||
+                    db.normalizeExplicitModel(row.model) ||
+                    null
                 },
                 baselineHeadSeq: db.getSwarmBoardHeadSync(ws, row),
                 reservedSlots: 1

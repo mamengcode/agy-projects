@@ -4900,6 +4900,29 @@
           .filter(Boolean);
         const setupCmdVal = document.getElementById("set-setup-cmd").value.trim();
         const existingOverrides = state.config?.models?.roleOverrides || {};
+        const nextRoleOverrides = {};
+        for (const [k, v] of Object.entries(existingOverrides)) {
+          if (k === "explorer" || k === "implementer" || k === "verifier" || k === "pr-fixer" || k === "pr_fixer") continue;
+          const trimmed = typeof v === "string" ? v.trim() : "";
+          if (trimmed && trimmed !== "inherit") nextRoleOverrides[k] = trimmed;
+        }
+        const uiRoleSelects = [
+          ["explorer", "set-role-explorer"],
+          ["implementer", "set-role-implementer"],
+          ["verifier", "set-role-verifier"],
+          ["pr-fixer", "set-role-pr-fixer"]
+        ];
+        for (const [roleKey, elId] of uiRoleSelects) {
+          const val = String(document.getElementById(elId).value || "").trim();
+          if (val && val !== "inherit") {
+            nextRoleOverrides[roleKey] = val;
+          } else if (
+            Object.prototype.hasOwnProperty.call(existingOverrides, roleKey) ||
+            (roleKey === "pr-fixer" && Object.prototype.hasOwnProperty.call(existingOverrides, "pr_fixer"))
+          ) {
+            nextRoleOverrides[roleKey] = null;
+          }
+        }
         await api("/api/settings/update", {
           name: document.getElementById("set-name").value.trim(),
           goal: document.getElementById("set-goal").value.trim(),
@@ -4907,13 +4930,7 @@
           models: {
             coordinatorModel: document.getElementById("set-coordinator-model").value,
             defaultThreadModel: document.getElementById("set-default-model").value,
-            roleOverrides: {
-              ...existingOverrides,
-              explorer: document.getElementById("set-role-explorer").value,
-              implementer: document.getElementById("set-role-implementer").value,
-              verifier: document.getElementById("set-role-verifier").value,
-              "pr-fixer": document.getElementById("set-role-pr-fixer").value
-            }
+            roleOverrides: nextRoleOverrides
           },
           orchestration: {
             maxConcurrentThreads: Number(document.getElementById("set-max-threads").value) || 5,
