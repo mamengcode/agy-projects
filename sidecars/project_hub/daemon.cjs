@@ -13,7 +13,7 @@ const db = require("../../server/db.cjs");
 const PORT = parseInt(process.env.ANTIGRAVITY_SIDECAR_WEB_PORT || "0", 10) || 0;
 const HOST = "127.0.0.1";
 const VALID_HOST_HEADER_RE = /^((127\.0\.0\.1|localhost|\[::1\])(:\d+)?)$/i;
-const PLUGIN_ORIGIN_RE = /^plugin:\/\//i;
+const ALLOWED_SIDECAR_ORIGIN_RE = /^(plugin|vscode-webview|sidecar):\/\//i;
 const AUTH_TOKEN =
   process.env.ANTIGRAVITY_SIDECAR_UI_TOKEN?.trim() ||
   process.env.ANTIGRAVITY_SIDECAR_AUTH_TOKEN?.trim() ||
@@ -25,6 +25,40 @@ const NO_CACHE_HEADERS = {
   Pragma: "no-cache",
   Expires: "0"
 };
+
+const BASE_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "no-referrer"
+};
+
+function buildHtmlSecurityHeaders(nonce) {
+  const csp = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}'`,
+    "style-src 'self' 'unsafe-inline'",
+    `style-src-elem 'self' 'nonce-${nonce}'`,
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data:",
+    "font-src 'self' data:",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'"
+  ].join("; ");
+  return {
+    ...BASE_SECURITY_HEADERS,
+    "Content-Security-Policy": csp
+  };
+}
+
+function safeInlineJson(val) {
+  return JSON.stringify(val)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
 
 const sseClients = new Set();
 // Map<"workspacePath::threadId", ChildProcess>
@@ -124,6 +158,7 @@ function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
+    ...BASE_SECURITY_HEADERS,
     ...NO_CACHE_HEADERS
   });
   res.end(body);
@@ -144,11 +179,27 @@ function resolveUiHtmlPath() {
 }
 
 function loadPreloadJs() {
+  let src = "// AGY Project Hub preload stub\nwindow.__sidecarReady = true;\n";
   try {
     const p = path.join(db.getAppDataDir(), "lib", "node_modules", "sidecar_sdk", "preload.js");
-    if (fs.existsSync(p)) return fs.readFileSync(p, "utf8");
+    if (fs.existsSync(p)) {
+      src = fs.readFileSync(p, "utf8");
+      // Let preload.js read token & conversationId from in-memory bootstrap globals
+      // instead of requiring ?token= in window.location.search.
+      src = src.replace(
+        /params\.get\(\s*(['"])token\1\s*\)/g,
+        "((typeof window.__SIDECAR_TOKEN__ === 'string' && window.__SIDECAR_TOKEN__) || params.get('token'))"
+      );
+      src = src.replace(
+        /params\.get\(\s*(['"])conversationId\1\s*\)/g,
+        "((typeof window.__SIDECAR_CONVERSATION_ID__ === 'string' && window.__SIDECAR_CONVERSATION_ID__) || params.get('conversationId'))"
+      );
+    }
   } catch {}
-  return "// AGY Project Hub preload stub\nwindow.__sidecarReady = true;\n";
+  return (
+    src +
+    "\n;(function(){if(window.sidecar&&typeof window.sidecar.fetch==='function'){var _f=window.sidecar.fetch;window.sidecar.fetch=function(u,o){var opts=o||{};var h=new Headers(opts.headers||{});if(!h.has('X-Sidecar-Token')&&typeof window.__SIDECAR_TOKEN__==='string'&&window.__SIDECAR_TOKEN__){h.set('X-Sidecar-Token',window.__SIDECAR_TOKEN__);}return _f(u,Object.assign({},opts,{headers:h}));};}})();\n"
+  );
 }
 
 const coordinatorStartLocks = new Map(); // absWs -> Promise
@@ -433,23 +484,25 @@ async function relayToCoordinator(
   };
 }
 
-function injectSidecarBootstrap(rawHtml, token, conversationId) {
+function injectSidecarBootstrap(rawHtml, token, conversationId, nonce) {
   const safeToken = String(token || "");
-  const safeConv = String(conversationId || "");
-  const query = safeToken
-    ? `token=${encodeURIComponent(safeToken)}${safeConv ? `&conversationId=${encodeURIComponent(safeConv)}` : ""}`
-    : "";
+  const rawConv = String(conversationId || "").trim();
+  const safeConv = rawConv && db.VALID_CONV_ID_RE.test(rawConv) ? rawConv : "";
+  const safeNonce = String(nonce || "");
+  const nonceAttr = safeNonce ? ` nonce="${safeNonce}"` : "";
 
   let html = rawHtml;
-  if (query) {
-    html = html.replace(/\b(href|src)=(["'])(\/[^"'\s>]*)\2/g, (match, attr, quote, urlPath) => {
-      if (urlPath.startsWith("//")) return match;
-      const sep = urlPath.includes("?") ? "&" : "?";
-      return `${attr}=${quote}${urlPath}${sep}${query}${quote}`;
+  if (safeNonce) {
+    html = html.replace(/<style\b([^>]*)>/gi, (match, attrs) =>
+      /\bnonce=/i.test(attrs) ? match : `<style${attrs}${nonceAttr}>`
+    );
+    html = html.replace(/<script\b([^>]*)>/gi, (match, attrs) => {
+      if (/\bsrc=/i.test(attrs) || /\bnonce=/i.test(attrs)) return match;
+      return `<script${attrs}${nonceAttr}>`;
     });
   }
 
-  const bootstrap = `<script>(function(){window.__SIDECAR_TOKEN__=${JSON.stringify(safeToken)};window.__SIDECAR_CONVERSATION_ID__=${JSON.stringify(safeConv)};try{if(${JSON.stringify(safeToken)}){var u=new URL(window.location.href);if(!u.searchParams.get("token")){u.searchParams.set("token",${JSON.stringify(safeToken)});window.history.replaceState(null,"",u.toString());}}}catch(e){}})();</script>`;
+  const bootstrap = `<script${nonceAttr}>(function(){window.__SIDECAR_TOKEN__=${safeInlineJson(safeToken)};window.__SIDECAR_CONVERSATION_ID__=${safeInlineJson(safeConv)};try{var u=new URL(window.location.href);if(u.searchParams.has("token")){u.searchParams.delete("token");window.history.replaceState(null,"",u.toString());}}catch(e){}})();</script>`;
   if (html.includes("<head>")) {
     return html.replace("<head>", `<head>\n  ${bootstrap}`);
   }
@@ -551,13 +604,15 @@ function isSameHostOrigin(origin, hostHeader) {
     if (!VALID_HOST_HEADER_RE.test(u.host)) return false;
     const parsedHost = new URL(`http://${hostHeader}`);
     const normPort = (portStr) => portStr || "80";
-    return (
-      u.hostname.toLowerCase() === parsedHost.hostname.toLowerCase() &&
-      normPort(u.port) === normPort(parsedHost.port)
-    );
+    return normPort(u.port) === normPort(parsedHost.port);
   } catch {
     return false;
   }
+}
+
+function isAllowedCorsOrigin(origin, hostHeader) {
+  if (!origin) return false;
+  return ALLOWED_SIDECAR_ORIGIN_RE.test(origin) || isSameHostOrigin(origin, hostHeader);
 }
 
 function collectDiagnostics(workspacePath) {
@@ -1140,20 +1195,20 @@ const server = http.createServer(async (req, res) => {
     const parsedUrl = new URL(req.url || "/", `http://${HOST}`);
     const pathname = normalizeRoute(parsedUrl.pathname);
     const origin = String(req.headers.origin || "").trim();
-
-    if (pathname === "/ui.html") {
-      if (origin && (PLUGIN_ORIGIN_RE.test(origin) || isSameHostOrigin(origin, hostHeader))) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader("Vary", "Origin");
+    res.setHeader("Vary", "Origin");
+    if (origin) {
+      if (!isAllowedCorsOrigin(origin, hostHeader)) {
+        return sendJson(res, 403, { error: "Forbidden: Origin not allowed" });
       }
-    } else {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Sidecar-Token");
+      res.setHeader("Access-Control-Allow-Origin", origin);
+      if (pathname !== "/ui.html" || (req.method || "").toUpperCase() === "OPTIONS") {
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+        res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-Sidecar-Token");
+      }
     }
 
     if ((req.method || "").toUpperCase() === "OPTIONS") {
-      res.writeHead(204, NO_CACHE_HEADERS);
+      res.writeHead(204, { ...BASE_SECURITY_HEADERS, ...NO_CACHE_HEADERS });
       res.end();
       return;
     }
@@ -1161,6 +1216,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && pathname === "/preload.js") {
       res.writeHead(200, {
         "Content-Type": "application/javascript; charset=utf-8",
+        ...BASE_SECURITY_HEADERS,
         ...NO_CACHE_HEADERS
       });
       res.end(loadPreloadJs());
@@ -1168,12 +1224,15 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && pathname === "/ui.html") {
+      const cspNonce = crypto.randomBytes(16).toString("base64");
+      const htmlHeaders = {
+        "Content-Type": "text/html; charset=utf-8",
+        ...buildHtmlSecurityHeaders(cspNonce),
+        ...NO_CACHE_HEADERS
+      };
       const uiPath = resolveUiHtmlPath();
       if (!uiPath) {
-        res.writeHead(503, {
-          "Content-Type": "text/html; charset=utf-8",
-          ...NO_CACHE_HEADERS
-        });
+        res.writeHead(503, htmlHeaders);
         res.end(
           "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"1\"></head><body><p style=\"font-family:system-ui;padding:16px\">Loading Project Hub UI...</p></body></html>"
         );
@@ -1181,11 +1240,8 @@ const server = http.createServer(async (req, res) => {
       }
       const rawHtml = fs.readFileSync(uiPath, "utf8");
       const convId = parsedUrl.searchParams.get("conversationId") || process.env.ANTIGRAVITY_CONVERSATION_ID || "";
-      const injected = injectSidecarBootstrap(rawHtml, AUTH_TOKEN, convId);
-      res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        ...NO_CACHE_HEADERS
-      });
+      const injected = injectSidecarBootstrap(rawHtml, AUTH_TOKEN, convId, cspNonce);
+      res.writeHead(200, htmlHeaders);
       res.end(injected);
       return;
     }
@@ -1197,7 +1253,8 @@ const server = http.createServer(async (req, res) => {
     // Authenticate all /api/* and /_sidecar/* routes
     if (pathname.startsWith("/api/") || pathname.startsWith("/_sidecar/")) {
       const headerTok = req.headers["x-sidecar-token"];
-      const queryTok = parsedUrl.searchParams.get("token");
+      const allowQueryToken = req.method === "GET" && pathname === "/api/events";
+      const queryTok = allowQueryToken ? parsedUrl.searchParams.get("token") : null;
       const candidate = typeof headerTok === "string" && headerTok ? headerTok : queryTok;
       if (!verifyToken(candidate)) {
         return sendJson(res, 401, { error: "Unauthorized: missing or invalid sidecar token." });
@@ -1273,7 +1330,8 @@ const server = http.createServer(async (req, res) => {
         "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
         Connection: "keep-alive",
-        "X-Accel-Buffering": "no"
+        "X-Accel-Buffering": "no",
+        ...BASE_SECURITY_HEADERS
       });
       sseClients.add(res);
       res.write(`event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`);

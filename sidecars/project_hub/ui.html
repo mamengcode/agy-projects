@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
   <title>AGY Project Hub</title>
   <script src="/preload.js"></script>
   <style>
@@ -1607,29 +1608,12 @@
         });
       }
 
-      function isOpaqueOrigin() {
-        try {
-          return !window.location.origin || window.location.origin === "null";
-        } catch {
-          return true;
-        }
-      }
-
       function apiUrl(pathname) {
-        const clean = pathname.startsWith("/") ? pathname : `/${pathname}`;
-        if (!sidecarToken) return clean;
-        const sep = clean.includes("?") ? "&" : "?";
-        return `${clean}${sep}token=${encodeURIComponent(sidecarToken)}`;
+        return pathname.startsWith("/") ? pathname : `/${pathname}`;
       }
 
       function buildAuthHeaders(hasJsonBody) {
         const headers = {};
-        if (isOpaqueOrigin() && sidecarToken) {
-          if (hasJsonBody) {
-            headers["Content-Type"] = "text/plain;charset=UTF-8";
-          }
-          return headers;
-        }
         if (hasJsonBody) {
           headers["Content-Type"] = "application/json";
         }
