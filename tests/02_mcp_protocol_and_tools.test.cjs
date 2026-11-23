@@ -265,5 +265,32 @@ test("MCP JSON-RPC protocol, tool schemas (GAP-01, GAP-05), and tool round-trips
       assert.equal(resObj.swarmPill, swarmPill, `${label} missing swarmPill`);
       assert.deepEqual(resObj.sidecarPills, [hubPill, swarmPill], `${label} missing sidecarPills`);
     }
+
+    // GAP-21: resources/list and resources/read match advertised capabilities
+    const resReplies = env.callMcp([
+      { jsonrpc: "2.0", id: 20, method: "resources/list", params: {} },
+      { jsonrpc: "2.0", id: 21, method: "resources/read", params: { uri: "agy-project://active/memory" } },
+      { jsonrpc: "2.0", id: 22, method: "resources/read", params: { uri: "agy-project://active/overview" } },
+      { jsonrpc: "2.0", id: 23, method: "resources/read", params: { uri: "agy-project://active/unknown" } },
+      { jsonrpc: "2.0", id: 24, method: "resources/read", params: {} }
+    ]);
+    const listRes = resReplies.find((m) => m.id === 20).result;
+    assert.ok(Array.isArray(listRes.resources) && listRes.resources.length === 2);
+    assert.ok(listRes.resources.some((r) => r.uri === "agy-project://active/memory"));
+    assert.ok(listRes.resources.some((r) => r.uri === "agy-project://active/overview"));
+
+    const memRead = resReplies.find((m) => m.id === 21).result;
+    assert.equal(memRead.contents[0].uri, "agy-project://active/memory");
+    assert.equal(memRead.contents[0].mimeType, "text/markdown");
+    assert.equal(typeof memRead.contents[0].text, "string");
+
+    const ovRead = resReplies.find((m) => m.id === 22).result;
+    assert.equal(ovRead.contents[0].uri, "agy-project://active/overview");
+    assert.equal(ovRead.contents[0].mimeType, "application/json");
+    const parsedOv = JSON.parse(ovRead.contents[0].text);
+    assert.equal(parsedOv.initialized, true);
+
+    assert.equal(resReplies.find((m) => m.id === 23).error.code, -32602);
+    assert.equal(resReplies.find((m) => m.id === 24).error.code, -32602);
   });
 });

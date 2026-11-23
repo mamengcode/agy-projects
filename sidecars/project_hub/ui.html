@@ -665,13 +665,13 @@
   </header>
 
   <main class="tabs-root">
-    <div class="tablist" id="main-tablist" focusgroup="tablist nomemory" aria-label="Project Hub Views">
-      <button type="button" id="tab-overview" aria-selected="true" focusgroupstart>Overview</button>
-      <button type="button" id="tab-threads">Threads <span id="cnt-threads" class="muted"></span></button>
-      <button type="button" id="tab-library">Library <span id="cnt-library" class="muted"></span></button>
-      <button type="button" id="tab-memory">Memory</button>
-      <button type="button" id="tab-prs">Pull Requests <span id="cnt-prs" class="muted"></span></button>
-      <button type="button" id="tab-settings">Settings</button>
+    <div class="tablist" id="main-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="Project Hub Views">
+      <button type="button" role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview" focusgroupstart>Overview</button>
+      <button type="button" role="tab" id="tab-threads" aria-selected="false" aria-controls="panel-threads">Threads <span id="cnt-threads" class="muted"></span></button>
+      <button type="button" role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Library <span id="cnt-library" class="muted"></span></button>
+      <button type="button" role="tab" id="tab-memory" aria-selected="false" aria-controls="panel-memory">Memory</button>
+      <button type="button" role="tab" id="tab-prs" aria-selected="false" aria-controls="panel-prs">Pull Requests <span id="cnt-prs" class="muted"></span></button>
+      <button type="button" role="tab" id="tab-settings" aria-selected="false" aria-controls="panel-settings">Settings</button>
     </div>
 
     <div class="panels-grid">
@@ -1520,7 +1520,7 @@
           <textarea id="steer-input" name="message" rows="3" required autofocus placeholder="Send instructions, answers, or feedback to this thread..."></textarea>
         </div>
         <div class="row-between">
-          <span class="muted">Dispatches to the Swarm Coordinator board, Sidecar SDK, or headless worker.</span>
+          <span id="steer-form-hint" class="muted">Dispatches to the Swarm Coordinator board, Sidecar SDK, or headless worker.</span>
           <button type="submit" id="btn-submit-steer" class="primary">Send Steering Message</button>
         </div>
       </form>
@@ -1812,20 +1812,71 @@
         }
       }
 
-      // Safe untrusted HTML snippet renderer using native Sanitizer API setHTML() with textContent fallback
+      // Safe untrusted HTML snippet renderer using native Sanitizer API setHTML() with attribute-free DOM tokenizer fallback
       function renderSafeSnippet(container, rawSnippet) {
-        const escaped = String(rawSnippet || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-        const formatted = `<code>${escaped}</code>`;
-        if ("setHTML" in Element.prototype) {
-          container.setHTML(formatted, {
-            sanitizer: { elements: ["code", "mark", "strong", "em"], attributes: [] }
-          });
-        } else {
-          container.textContent = String(rawSnippet || "");
+        const input = String(rawSnippet || "");
+        if ("setHTML" in Element.prototype && typeof container?.setHTML === "function") {
+          try {
+            container.setHTML(`<code>${input}</code>`, {
+              sanitizer: { elements: ["code", "mark", "strong", "em"], attributes: [] }
+            });
+            return;
+          } catch {}
         }
+        const decodeBasicEntities = (s) =>
+          s.replace(/&(lt|gt|quot|#39|#x27|amp);/gi, (_, ent) => {
+            const k = ent.toLowerCase();
+            if (k === "lt") return "<";
+            if (k === "gt") return ">";
+            if (k === "quot") return '"';
+            if (k === "#39" || k === "#x27") return "'";
+            return "&";
+          });
+        const codeEl = document.createElement("code");
+        const allowed = new Set(["mark", "strong", "em", "code"]);
+        const tokenRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+        const stack = [codeEl];
+        let lastIdx = 0;
+        let match;
+        while ((match = tokenRe.exec(input)) !== null) {
+          if (match.index > lastIdx) {
+            stack[stack.length - 1].appendChild(
+              document.createTextNode(decodeBasicEntities(input.slice(lastIdx, match.index)))
+            );
+          }
+          const isClose = match[1] === "/";
+          const tag = match[2].toLowerCase();
+          if (allowed.has(tag)) {
+            if (!isClose) {
+              const el = document.createElement(tag);
+              stack[stack.length - 1].appendChild(el);
+              stack.push(el);
+            } else {
+              for (let i = stack.length - 1; i >= 1; i--) {
+                if (stack[i].tagName.toLowerCase() === tag) {
+                  stack.length = i;
+                  break;
+                }
+              }
+            }
+          } else if (!isClose && (tag === "script" || tag === "style")) {
+            const closeRe = new RegExp(`</${tag}\\s*>`, "i");
+            const rest = input.slice(tokenRe.lastIndex);
+            const closeM = closeRe.exec(rest);
+            if (closeM) {
+              tokenRe.lastIndex += closeM.index + closeM[0].length;
+            } else {
+              tokenRe.lastIndex = input.length;
+            }
+          }
+          lastIdx = tokenRe.lastIndex;
+        }
+        if (lastIdx < input.length) {
+          stack[stack.length - 1].appendChild(
+            document.createTextNode(decodeBasicEntities(input.slice(lastIdx)))
+          );
+        }
+        container.replaceChildren(codeEl);
       }
 
       function formatElapsedSeconds(sec) {
@@ -2403,8 +2454,7 @@
         if (!msg) return;
         if (thread?.swarm_member_name) {
           if (thread.swarm_state === "killed") {
-            showToast(`Cannot steer killed Swarm worker @${thread.swarm_member_name}.`, true);
-            return;
+            throw new Error(`Cannot steer killed Swarm worker @${thread.swarm_member_name}.`);
           }
           const res = await api("/api/threads/action", {
             action: "steer",
@@ -2688,6 +2738,19 @@
           if (!sec.hidden && document.getElementById("dlg-thread-detail")?.open) {
             loadThreadSwarmBoard(thread.thread_id).catch(() => {});
           }
+        }
+
+        const isKilledSwarm = Boolean(thread?.swarm_member_name && thread.swarm_state === "killed");
+        const steerInput = document.getElementById("steer-input");
+        const steerBtn = document.getElementById("btn-submit-steer");
+        const steerHint = document.getElementById("steer-form-hint");
+        if (steerInput) steerInput.disabled = isKilledSwarm;
+        if (steerBtn) steerBtn.disabled = isKilledSwarm;
+        if (steerHint) {
+          steerHint.textContent = isKilledSwarm
+            ? `Worker @${thread.swarm_member_name} is killed and cannot be steered. Start a new thread to continue.`
+            : "Dispatches to the Swarm Coordinator board, Sidecar SDK, or headless worker.";
+          steerHint.style.color = isKilledSwarm ? "var(--ph-warn)" : "";
         }
       }
 
@@ -4087,12 +4150,6 @@
                 uriLink.style.cssText = "display:inline-block;margin-top:2px;color:var(--ph-accent);text-decoration:underline;cursor:pointer";
                 uriLink.addEventListener("click", async (ev) => {
                   ev.preventDefault();
-                  if (window.sidecar?.ui && typeof window.sidecar.ui.openUri === "function") {
-                    try {
-                      await window.sidecar.ui.openUri(pl.customizationUri);
-                      return;
-                    } catch {}
-                  }
                   try {
                     if (navigator.clipboard?.writeText) {
                       await navigator.clipboard.writeText(pl.customizationUri);

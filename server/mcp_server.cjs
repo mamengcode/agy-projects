@@ -822,7 +822,87 @@ rl.on("line", (line) => {
     }
 
     if (method === "resources/list") {
-      return sendRpc({ jsonrpc: "2.0", id, result: { resources: [] } });
+      const activeWs = (() => {
+        try {
+          return db.resolveActiveWorkspace();
+        } catch {
+          return null;
+        }
+      })();
+      if (!activeWs || !db.hasProjectInitialized(activeWs)) {
+        return sendRpc({ jsonrpc: "2.0", id, result: { resources: [] } });
+      }
+      return sendRpc({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          resources: [
+            {
+              uri: "agy-project://active/memory",
+              name: "Active Project MEMORY.md",
+              description: "Curated project memory index for the active AGY Project.",
+              mimeType: "text/markdown"
+            },
+            {
+              uri: "agy-project://active/overview",
+              name: "Active Project Overview",
+              description: "Full JSON workspace snapshot for the active AGY Project.",
+              mimeType: "application/json"
+            }
+          ]
+        }
+      });
+    }
+
+    if (method === "resources/read") {
+      const uri = typeof params?.uri === "string" ? params.uri.trim() : "";
+      if (!uri) {
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32602, message: "Missing required parameter: uri" }
+        });
+      }
+      const activeWs = (() => {
+        try {
+          return db.resolveActiveWorkspace();
+        } catch {
+          return null;
+        }
+      })();
+      if (!activeWs || !db.hasProjectInitialized(activeWs)) {
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32602, message: `Resource not found (no active project): ${uri}` }
+        });
+      }
+      if (uri === "agy-project://active/memory") {
+        const memPath = path.join(db.getProjectDir(activeWs), "memory", "MEMORY.md");
+        const memText = fs.existsSync(memPath) ? fs.readFileSync(memPath, "utf8") : "";
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            contents: [{ uri, mimeType: "text/markdown", text: memText }]
+          }
+        });
+      }
+      if (uri === "agy-project://active/overview") {
+        const snap = db.buildFullWorkspaceSnapshot(activeWs);
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            contents: [{ uri, mimeType: "application/json", text: JSON.stringify(snap, null, 2) }]
+          }
+        });
+      }
+      return sendRpc({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32602, message: `Resource not found: ${uri}` }
+      });
     }
 
     if (method === "prompts/list") {

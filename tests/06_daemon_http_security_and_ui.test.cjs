@@ -593,4 +593,105 @@ test("Sidecar Daemon HTTP/SSE APIs, CORS/CSP/Token Security (GAP-09, GAP-04), an
     assert.ok(uiHtml.includes("closeStateSse"));
     assert.ok(uiHtml.includes('window.addEventListener("beforeunload", closeStateSse)'));
   });
+
+  await t.test("GAP-21: static ARIA tablist/tab roles, no openUri, renderSafeSnippet XSS/mark handling, and killed-worker steer guard", () => {
+    const uiHtml = fs.readFileSync(path.join(env.REPO_ROOT, "sidecars", "project_hub", "ui.html"), "utf8");
+
+    // 1. Static ARIA roles on tablist & all 6 tabs
+    assert.ok(uiHtml.includes('id="main-tablist" role="tablist"'));
+    for (const tabId of ["tab-overview", "tab-threads", "tab-library", "tab-memory", "tab-prs", "tab-settings"]) {
+      assert.ok(
+        uiHtml.includes(`role="tab" id="${tabId}"`),
+        `Missing static role="tab" on ${tabId}`
+      );
+    }
+
+    // 2. Non-existent window.sidecar.ui.openUri removed
+    assert.equal(uiHtml.includes("openUri"), false, "ui.html must not reference non-existent sidecar.ui.openUri");
+
+    // 3. Killed-worker steer guard throws (preserving input/modal) and disables form controls
+    assert.ok(uiHtml.includes('throw new Error(`Cannot steer killed Swarm worker @${thread.swarm_member_name}.`)'));
+    assert.ok(uiHtml.includes("if (steerInput) steerInput.disabled = isKilledSwarm;"));
+    assert.ok(uiHtml.includes("if (steerBtn) steerBtn.disabled = isKilledSwarm;"));
+    assert.ok(uiHtml.includes('id="steer-form-hint"'));
+
+    // 4. Execute extracted renderSafeSnippet in VM on both setHTML and DOM fallback paths
+    const fnStart = uiHtml.indexOf("function renderSafeSnippet(");
+    const fnEnd = uiHtml.indexOf("function formatElapsedSeconds(");
+    assert.ok(fnStart > 0 && fnEnd > fnStart);
+    const fnSrc = uiHtml.slice(fnStart, fnEnd);
+
+    // 4a. Native setHTML path preserves <mark> without pre-escaping
+    let capturedHtml = null;
+    let capturedOpts = null;
+    const setHtmlSandbox = {
+      Element: { prototype: { setHTML: () => {} } }
+    };
+    vm.runInNewContext(`${fnSrc}\nthis.renderSafeSnippet = renderSafeSnippet;`, setHtmlSandbox);
+    setHtmlSandbox.renderSafeSnippet(
+      {
+        setHTML(html, opts) {
+          capturedHtml = html;
+          capturedOpts = opts;
+        }
+      },
+      'Hello <mark>world</mark> &amp; <script>alert(1)</script>'
+    );
+    assert.ok(capturedHtml.includes("<mark>world</mark>"), "setHTML path must not pre-escape <mark>");
+    assert.equal(capturedHtml.includes("&amp;amp;"), false, "setHTML path must not double-escape entities");
+    assert.deepEqual(Array.from(capturedOpts.sanitizer.elements), ["code", "mark", "strong", "em"]);
+    assert.deepEqual(Array.from(capturedOpts.sanitizer.attributes), []);
+
+    // 4b. Fallback DOM tokenizer path preserves <mark>, strips <script> and <img onerror>, and drops attributes
+    class MockNode {
+      constructor(type, tagOrText) {
+        this.type = type;
+        this.tagName = type === "el" ? tagOrText.toUpperCase() : "";
+        this.text = type === "text" ? tagOrText : "";
+        this.children = [];
+      }
+      appendChild(c) {
+        this.children.push(c);
+        return c;
+      }
+      replaceChildren(...nodes) {
+        this.children = nodes;
+      }
+    }
+    const fallbackSandbox = {
+      Element: { prototype: {} },
+      document: {
+        createElement: (tag) => new MockNode("el", tag),
+        createTextNode: (txt) => new MockNode("text", txt)
+      }
+    };
+    vm.runInNewContext(`${fnSrc}\nthis.renderSafeSnippet = renderSafeSnippet;`, fallbackSandbox);
+    const container = new MockNode("el", "div");
+    fallbackSandbox.renderSafeSnippet(
+      container,
+      'Match: <mark onclick="alert(1)">token</mark> &amp; &lt;script&gt; <script>alert(2)</script><img src=x onerror=alert(3)> <strong>ok</strong>'
+    );
+    const serialize = (n) =>
+      n.type === "text" ? n.text : `<${n.tagName.toLowerCase()}>${n.children.map(serialize).join("")}</${n.tagName.toLowerCase()}>`;
+    const rendered = container.children.map(serialize).join("");
+    assert.equal(rendered, "<code>Match: <mark>token</mark> & <script>  <strong>ok</strong></code>");
+    // Verify "& <script> " is a plain text node (not an element)
+    const codeChildren = container.children[0].children;
+    assert.equal(codeChildren[2].type, "text");
+    assert.equal(codeChildren[2].text, " & <script> ");
+
+    // 4c. Throwing setHTML (older Chromium Sanitizer signature) falls back cleanly to DOM tokenizer
+    const throwingSandbox = {
+      Element: { prototype: { setHTML: () => { throw new TypeError("Invalid Sanitizer"); } } },
+      document: {
+        createElement: (tag) => new MockNode("el", tag),
+        createTextNode: (txt) => new MockNode("text", txt)
+      }
+    };
+    vm.runInNewContext(`${fnSrc}\nthis.renderSafeSnippet = renderSafeSnippet;`, throwingSandbox);
+    const fallbackContainer = new MockNode("el", "div");
+    fallbackContainer.setHTML = () => { throw new TypeError("Invalid Sanitizer"); };
+    throwingSandbox.renderSafeSnippet(fallbackContainer, "Safe <mark>hit</mark> &quot;q&quot;");
+    assert.equal(fallbackContainer.children.map(serialize).join(""), '<code>Safe <mark>hit</mark> "q"</code>');
+  });
 });
