@@ -2185,6 +2185,8 @@ const server = http.createServer(async (req, res) => {
         }
         const out = db.ingestLibraryItem(ws, {
           sourcePath: absSrc,
+          filename: body.filename || undefined,
+          relativePath: body.relativePath || undefined,
           category: body.category || "input",
           sourceType: body.sourceType || "local_file",
           title: body.title,
@@ -2198,7 +2200,8 @@ const server = http.createServer(async (req, res) => {
 
       const out = db.ingestLibraryItem(ws, {
         content: buf,
-        filename: body.filename || "uploaded-doc.md",
+        filename: body.filename || body.relativePath || "uploaded-doc.md",
+        relativePath: body.relativePath || undefined,
         category: body.category || "input",
         sourceType: body.sourceType || "upload",
         title: body.title,

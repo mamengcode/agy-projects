@@ -4818,7 +4818,10 @@
         if (entry.name === ".git" || entry.name === "node_modules") return;
         if (entry.isFile) {
           const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
-          if (file) outFiles.push(file);
+          if (file) {
+            const rel = String(entry.fullPath || file.webkitRelativePath || file.name || "").replace(/^\/+/, "");
+            outFiles.push({ file, relativePath: rel || file.name });
+          }
         } else if (entry.isDirectory) {
           const children = await readAllDirectoryEntries(entry.createReader());
           for (const child of children) {
@@ -4865,7 +4868,10 @@
       async function handleFiles(fileList) {
         if (!fileList || fileList.length === 0) return;
         const allowLargeLocal = Boolean(document.getElementById("chk-allow-large-local")?.checked);
-        for (const file of fileList) {
+        for (const item of fileList) {
+          const file = item && item.file ? item.file : item;
+          if (!file) continue;
+          const relName = String((item && item.relativePath) || file.webkitRelativePath || file.name || "").replace(/^\/+/, "");
           try {
             const buf = await file.arrayBuffer();
             const bytes = new Uint8Array(buf);
@@ -4874,13 +4880,14 @@
               binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
             }
             await api("/api/library/upload", {
-              filename: file.name,
+              filename: relName || file.name,
+              relativePath: relName || undefined,
               base64Content: btoa(binary),
               category: "input",
               sourceType: "upload",
               allowLargeLocal
             });
-            showToast(`Ingested ${file.name}`);
+            showToast(`Ingested ${relName || file.name}`);
           } catch (err) {
             showToast(err.message, true);
           }

@@ -569,4 +569,155 @@ print(json.dumps({"ok": True}))
     const metaFile = path.join(ws, ".agy-project", "worktrees", preThreadId, ".worktrees.json");
     assert.equal(fs.existsSync(metaFile), false);
   });
+
+  await t.test("GAP-16: PDF extraction retry in readLibraryItemText and library filename collision/traversal guards", () => {
+    const wsLib = env.makeWorkspace("ws-gap16");
+    db.createProject({ name: "Lib GAP16", workspacePath: wsLib });
+    db.updateProjectSettings(wsLib, { environment: { envVars: { GAP16_MARKER: "retry-env-ok" } } });
+
+    // 1. Subpath preservation (a/README.md vs b/README.md) with both distinct and identical content
+    const docA = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "a/README.md",
+      content: "# Folder A\nAlpha docs\n",
+      syncEmbeddings: false
+    });
+    const docB = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "b/README.md",
+      content: "# Folder A\nAlpha docs\n", // identical content -> must NOT collide on item_id PK!
+      syncEmbeddings: false
+    });
+    assert.equal(docA.item.rel_path, "library/inputs/a/README.md");
+    assert.equal(docB.item.rel_path, "library/inputs/b/README.md");
+    assert.notEqual(docA.item.item_id, docB.item.item_id);
+    assert.equal(fs.existsSync(path.join(wsLib, ".agy-project", docA.item.rel_path)), true);
+    assert.equal(fs.existsSync(path.join(wsLib, ".agy-project", docB.item.rel_path)), true);
+
+    // 2. Flat filename collision (report.md uploaded twice with different content -> disambiguates, preserves both)
+    const r1 = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "report.md",
+      content: "Report version 1",
+      syncEmbeddings: false
+    });
+    const r2 = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "report.md",
+      content: "Report version 2 (different)",
+      syncEmbeddings: false
+    });
+    assert.equal(r1.item.rel_path, "library/inputs/report.md");
+    assert.notEqual(r2.item.rel_path, r1.item.rel_path);
+    assert.match(r2.item.rel_path, /^library\/inputs\/report-[0-9a-f]{8}\.md$/);
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", r1.item.rel_path), "utf8"), "Report version 1");
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", r2.item.rel_path), "utf8"), "Report version 2 (different)");
+
+    // Re-uploading identical content to same filename is idempotent
+    const r1Again = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "report.md",
+      content: "Report version 1",
+      syncEmbeddings: false
+    });
+    assert.equal(r1Again.item.item_id, r1.item.item_id);
+    assert.equal(r1Again.item.rel_path, r1.item.rel_path);
+
+    // 2b. Parent file-vs-directory collisions: file 'docs' followed by 'docs/guide.md', and 'foo/bar.md' followed by file 'foo'
+    const docsFile = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "docs",
+      content: "Flat docs file",
+      syncEmbeddings: false
+    });
+    const docsNested = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "docs/guide.md",
+      content: "Nested guide inside docs",
+      syncEmbeddings: false
+    });
+    assert.equal(docsFile.item.rel_path, "library/inputs/docs");
+    assert.match(docsNested.item.rel_path, /^library\/inputs\/docs-[0-9a-f]{8}\/guide\.md$/);
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", docsFile.item.rel_path), "utf8"), "Flat docs file");
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", docsNested.item.rel_path), "utf8"), "Nested guide inside docs");
+
+    const fooNested = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "foo/bar.md",
+      content: "Nested bar",
+      syncEmbeddings: false
+    });
+    const fooFile = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "foo",
+      content: "Flat foo file",
+      syncEmbeddings: false
+    });
+    assert.equal(fooNested.item.rel_path, "library/inputs/foo/bar.md");
+    assert.match(fooFile.item.rel_path, /^library\/inputs\/foo-[0-9a-f]{8}$/);
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", fooNested.item.rel_path), "utf8"), "Nested bar");
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", fooFile.item.rel_path), "utf8"), "Flat foo file");
+
+    // 3. Path traversal & absolute filename rejection
+    for (const badName of ["../escape.md", "sub/../../escape.md", "/etc/passwd", "bad\0name.md"]) {
+      assert.throws(
+        () => db.ingestLibraryItem(wsLib, { category: "input", filename: badName, content: "x", syncEmbeddings: false }),
+        /Invalid library/i
+      );
+    }
+    assert.equal(db.readLibraryItemText(wsLib, { item_id: "x", rel_path: "../../etc/passwd", mime_type: "text/plain" }), "");
+
+    // 4. PDF extraction retry in readLibraryItemText when extracted/<itemId>.txt is missing
+    const venvBin = path.join(env.sharedData, "venv", "bin");
+    fs.mkdirSync(venvBin, { recursive: true });
+    const fakePy = path.join(venvBin, "python");
+    const modeFile = path.join(env.tmpRoot, "pdf-stub-mode.txt");
+    fs.writeFileSync(modeFile, "fail", "utf8");
+    fs.writeFileSync(
+      fakePy,
+      `#!/usr/bin/env node
+const fs = require("fs");
+const mode = fs.readFileSync(${JSON.stringify(modeFile)}, "utf8").trim();
+if (process.argv.includes("extract-doc")) {
+  if (mode === "ok") {
+    console.log(JSON.stringify({
+      ok: true,
+      pageCount: 2,
+      pdfMode: "visual_and_text",
+      text: "## Page 1\\nRetried PDF text (env=" + (process.env.GAP16_MARKER || "") + ")"
+    }));
+    process.exit(0);
+  }
+  process.exit(1);
+}
+console.log(JSON.stringify({ ok: true }));
+`,
+      { mode: 0o755 }
+    );
+
+    try {
+      const pdfBytes = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF\n", "utf8");
+      const pdfIngest = db.ingestLibraryItem(wsLib, {
+        category: "input",
+        filename: "spec.pdf",
+        content: pdfBytes,
+        syncEmbeddings: false
+      });
+      const extractedFile = db.getExtractedTextPath(wsLib, pdfIngest.item.item_id);
+      assert.equal(fs.existsSync(extractedFile), false, "initial failed extract should not write extracted txt");
+
+      // While extractor still fails, readLibraryItemText gracefully returns PDF placeholder
+      const fallbackText = db.readLibraryItemText(wsLib, pdfIngest.item);
+      assert.match(fallbackText, /\[PDF Asset:/);
+
+      // Once extractor succeeds, readLibraryItemText retries, returns extracted text, and persists extracted/<itemId>.txt
+      fs.writeFileSync(modeFile, "ok", "utf8");
+      const retriedText = db.readLibraryItemText(wsLib, pdfIngest.item);
+      assert.ok(retriedText.includes("Retried PDF text (env=retry-env-ok)"));
+      assert.equal(fs.existsSync(extractedFile), true);
+      assert.equal(fs.readFileSync(extractedFile, "utf8"), retriedText);
+    } finally {
+      fs.rmSync(path.join(env.sharedData, "venv"), { recursive: true, force: true });
+    }
+  });
 });

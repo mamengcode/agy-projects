@@ -3999,25 +3999,108 @@ function extractDocumentSync(absFilePath, mimeType, workspacePath = null) {
   }
 }
 
+function sanitizeLibraryRelativePath(rawInput) {
+  const raw = String(rawInput || "").trim();
+  if (!raw) {
+    const err = new Error("Invalid library filename/path: path is empty.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (raw.includes("\0")) {
+    const err = new Error("Invalid library filename/path: null bytes are not allowed.");
+    err.statusCode = 400;
+    throw err;
+  }
+  const normalized = raw.replace(/\\/g, "/");
+  if (normalized.startsWith("/") || /^[a-zA-Z]:\//.test(normalized)) {
+    const err = new Error(`Invalid library filename/path '${raw}': absolute paths are not allowed.`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const rawParts = normalized.split("/");
+  const cleanParts = [];
+  for (const seg of rawParts) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      const err = new Error(`Invalid library filename/path '${raw}': path traversal ('..') is not allowed.`);
+      err.statusCode = 400;
+      throw err;
+    }
+    const cleaned = seg.replace(/[\x00-\x1f\x7f]/g, "").trim();
+    if (!cleaned || cleaned === "." || cleaned === "..") {
+      const err = new Error(`Invalid library filename/path '${raw}': invalid path segment.`);
+      err.statusCode = 400;
+      throw err;
+    }
+    cleanParts.push(cleaned);
+  }
+  if (cleanParts.length === 0) {
+    const err = new Error(`Invalid library filename/path '${raw}': empty normalized path.`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return cleanParts.join("/");
+}
+
 function readLibraryItemText(workspacePath, item) {
+  if (!item || !item.item_id || !item.rel_path) return "";
+  const projectDir = getProjectDir(workspacePath);
+  const realProjectDir = resolveRealPathWithAncestor(projectDir);
+  const realLibraryRoot = resolveRealPathWithAncestor(path.join(projectDir, "library"));
+  const realExtractedRoot = resolveRealPathWithAncestor(path.join(projectDir, "state", "extracted"));
+
   const extractedPath = getExtractedTextPath(workspacePath, item.item_id);
-  if (fs.existsSync(extractedPath)) {
+  const realExtracted = resolveRealPathWithAncestor(extractedPath);
+  const canUseExtracted = isPathInsideDir(realExtracted, realExtractedRoot, { allowEqual: false });
+  if (canUseExtracted && fs.existsSync(extractedPath)) {
     return fs.readFileSync(extractedPath, "utf8");
   }
-  const absFile = path.join(getProjectDir(workspacePath), item.rel_path);
+
+  const rawRel = String(item.rel_path).replace(/\\/g, "/");
+  if (
+    rawRel.includes("\0") ||
+    rawRel.startsWith("/") ||
+    /^[a-zA-Z]:\//.test(rawRel) ||
+    rawRel.split("/").includes("..")
+  ) {
+    return "";
+  }
+  const absFile = path.resolve(projectDir, rawRel);
+  const realFile = resolveRealPathWithAncestor(absFile);
+  if (
+    !isPathInsideDir(realFile, realLibraryRoot, { allowEqual: false }) ||
+    !isPathInsideDir(realFile, realProjectDir, { allowEqual: false })
+  ) {
+    return "";
+  }
   if (!fs.existsSync(absFile)) return "";
-  if (item.mime_type === "application/pdf") {
+
+  const mimeType = String(item.mime_type || "");
+  if (mimeType === "application/pdf" || path.extname(absFile).toLowerCase() === ".pdf") {
+    try {
+      const extRes = extractDocumentSync(absFile, "application/pdf", workspacePath);
+      if (extRes?.ok && typeof extRes.text === "string" && extRes.text.trim().length > 0) {
+        if (canUseExtracted) {
+          writeTextAtomic(extractedPath, extRes.text);
+        }
+        return extRes.text;
+      }
+    } catch {}
     return `[PDF Asset: ${item.title} | Pages: ${item.page_count || 1} | Mode: ${item.pdf_mode || "visual_and_text"}]`;
   }
-  if (item.mime_type.startsWith("image/")) {
+  if (mimeType.startsWith("image/")) {
     return `[Image Asset: ${item.title}]`;
   }
-  if (isStructuredBinaryMime(item.mime_type, absFile)) {
-    const extRes = extractDocumentSync(absFile, item.mime_type, workspacePath);
-    if (extRes?.ok && typeof extRes.text === "string") {
-      writeTextAtomic(extractedPath, extRes.text);
-      return extRes.text;
-    }
+  if (isStructuredBinaryMime(mimeType, absFile)) {
+    try {
+      const extRes = extractDocumentSync(absFile, mimeType, workspacePath);
+      if (extRes?.ok && typeof extRes.text === "string" && extRes.text.trim().length > 0) {
+        if (canUseExtracted) {
+          writeTextAtomic(extractedPath, extRes.text);
+        }
+        return extRes.text;
+      }
+    } catch {}
     return `[Document Asset: ${item.title}]`;
   }
   return fs.readFileSync(absFile, "utf8");
@@ -4232,7 +4315,7 @@ function rebalanceLibraryIndexing(workspacePath, { syncEmbeddings = false, force
   return { mode, totalTokens, threshold, activeModel };
 }
 
-function ingestLibraryItem(workspacePath, { sourcePath, content, filename, category = "input", sourceType = "upload", title, producerThreadId, allowLargeLocal = false, syncEmbeddings = false }) {
+function ingestLibraryItem(workspacePath, { sourcePath, content, filename, relativePath, category = "input", sourceType = "upload", title, producerThreadId, allowLargeLocal = false, syncEmbeddings = false, overwriteExisting = false }) {
   if (category !== "input" && category !== "output") {
     throw new Error(`Invalid category '${category}'. Must be 'input' or 'output'.`);
   }
@@ -4240,30 +4323,56 @@ function ingestLibraryItem(workspacePath, { sourcePath, content, filename, categ
   const subDir = category === "input" ? "inputs" : "outputs";
   const destDir = path.join(pDir, "library", subDir);
   fs.mkdirSync(destDir, { recursive: true });
+  const realDestDir = resolveRealPathWithAncestor(destDir);
 
   let rawBuf;
-  let baseName;
+  let initialRel;
+  let inPlaceSource = false;
+  let absSrc = null;
   const isBufferPayload = content !== undefined && content !== null;
+  const explicitRel = relativePath !== undefined && relativePath !== null && String(relativePath).trim() !== ""
+    ? String(relativePath)
+    : (filename !== undefined && filename !== null && String(filename).trim() !== "" ? String(filename) : null);
+
   if (isBufferPayload) {
-    baseName = path.basename(filename || title || `doc-${Date.now()}.md`);
+    if (explicitRel !== null) {
+      initialRel = sanitizeLibraryRelativePath(explicitRel);
+    } else {
+      const fallbackName = String(title || `doc-${Date.now()}.md`).replace(/[\\/]+/g, "-");
+      initialRel = sanitizeLibraryRelativePath(fallbackName);
+    }
     rawBuf = Buffer.isBuffer(content) ? content : Buffer.from(String(content), "utf8");
   } else {
     if (!sourcePath) throw new Error("Provide sourcePath or content.");
-    const absSrc = path.resolve(String(sourcePath));
+    absSrc = path.resolve(String(sourcePath));
     if (isBlockedSensitiveSourcePath(absSrc, workspacePath)) {
       const forbiddenErr = new Error("Forbidden: sourcePath points to a sensitive or non-regular file.");
       forbiddenErr.statusCode = 403;
       throw forbiddenErr;
     }
     if (!fs.existsSync(absSrc)) throw new Error(`Source file not found: ${absSrc}`);
-    baseName = path.basename(filename || absSrc);
+    const realSrc = resolveRealPathWithAncestor(absSrc);
+    if (explicitRel !== null) {
+      initialRel = sanitizeLibraryRelativePath(explicitRel);
+    } else if (isPathInsideDir(realSrc, realDestDir, { allowEqual: false })) {
+      inPlaceSource = true;
+      initialRel = sanitizeLibraryRelativePath(path.relative(realDestDir, realSrc).split(path.sep).join("/"));
+    } else {
+      const realWs = resolveRealPathWithAncestor(workspacePath);
+      if (isPathInsideDir(realSrc, realWs, { allowEqual: false })) {
+        const wsRel = path.relative(realWs, realSrc).split(path.sep).join("/");
+        initialRel = sanitizeLibraryRelativePath(wsRel);
+      } else {
+        initialRel = sanitizeLibraryRelativePath(path.basename(absSrc));
+      }
+    }
     const st = fs.statSync(absSrc);
     const preCap = allowLargeLocal
       ? MAX_LARGE_LOCAL_BYTES
       : (category === "input" ? MAX_UPLOAD_INPUT_BYTES : MAX_LARGE_LOCAL_BYTES);
     if (st.size > preCap) {
       throw new Error(
-        `File '${baseName}' (${(st.size / (1024 * 1024)).toFixed(1)} MB) exceeds the ${Math.round(preCap / (1024 * 1024))} MB Project Library limit.`
+        `File '${initialRel}' (${(st.size / (1024 * 1024)).toFixed(1)} MB) exceeds the ${Math.round(preCap / (1024 * 1024))} MB Project Library limit.`
       );
     }
     rawBuf = fs.readFileSync(absSrc);
@@ -4275,14 +4384,118 @@ function ingestLibraryItem(workspacePath, { sourcePath, content, filename, categ
       : MAX_UPLOAD_INPUT_BYTES;
     if (rawBuf.length > maxBytes) {
       throw new Error(
-        `File '${baseName}' (${(rawBuf.length / (1024 * 1024)).toFixed(1)} MB) exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB Project Library upload limit.`
+        `File '${initialRel}' (${(rawBuf.length / (1024 * 1024)).toFixed(1)} MB) exceeds the ${Math.round(maxBytes / (1024 * 1024))} MB Project Library upload limit.`
       );
     }
   }
 
+  const db = openProjectDb(workspacePath);
+  const digest = sha256Hex(rawBuf);
+
+  const resolveSafeDest = (candidateRel) => {
+    const candidateAbs = path.resolve(destDir, ...candidateRel.split("/"));
+    const realCandidate = resolveRealPathWithAncestor(candidateAbs);
+    if (!isPathInsideDir(realCandidate, realDestDir, { allowEqual: false })) {
+      const err = new Error(`Invalid library path '${candidateRel}': destination escapes library directory.`);
+      err.statusCode = 400;
+      throw err;
+    }
+    return candidateAbs;
+  };
+
+  const hasParentFileConflict = (candidateAbs) => {
+    let cur = path.dirname(candidateAbs);
+    const absDestRoot = path.resolve(destDir);
+    while (cur && cur !== absDestRoot && isPathInsideDir(cur, absDestRoot, { allowEqual: false })) {
+      try {
+        if (!fs.lstatSync(cur).isDirectory()) return true;
+      } catch {}
+      cur = path.dirname(cur);
+    }
+    return false;
+  };
+
+  let targetRel = initialRel;
+  let destAbs = resolveSafeDest(targetRel);
+  let relPath = path.posix.join("library", subDir, targetRel);
+  let existing = db.prepare("SELECT * FROM library_items WHERE rel_path = ?").get(relPath);
+
+  if (absSrc && pathsEqual(resolveRealPathWithAncestor(absSrc), resolveRealPathWithAncestor(destAbs))) {
+    inPlaceSource = true;
+  }
+
+  if (!inPlaceSource && !overwriteExisting) {
+    const shortHash = digest.slice(0, 8);
+    if (hasParentFileConflict(destAbs)) {
+      const allParts = initialRel.split("/");
+      const dirParts = allParts.slice(0, -1);
+      const filePart = allParts[allParts.length - 1];
+      const safeDirParts = [];
+      let curAbs = path.resolve(destDir);
+      for (const seg of dirParts) {
+        let chosen = seg;
+        for (let attempt = 0; attempt < 1000; attempt++) {
+          const candSeg = attempt === 0 ? seg : (attempt === 1 ? `${seg}-${shortHash}` : `${seg}-${shortHash}-${attempt}`);
+          const nextAbs = path.resolve(curAbs, candSeg);
+          let isConflict = false;
+          try {
+            if (!fs.lstatSync(nextAbs).isDirectory()) isConflict = true;
+          } catch {}
+          if (!isConflict) {
+            chosen = candSeg;
+            curAbs = nextAbs;
+            break;
+          }
+        }
+        safeDirParts.push(chosen);
+      }
+      targetRel = safeDirParts.length > 0 ? `${safeDirParts.join("/")}/${filePart}` : filePart;
+      destAbs = resolveSafeDest(targetRel);
+      relPath = path.posix.join("library", subDir, targetRel);
+      existing = db.prepare("SELECT * FROM library_items WHERE rel_path = ?").get(relPath);
+    }
+
+    const needsDisambiguation = () => {
+      if (existing) {
+        return existing.sha256 !== digest;
+      }
+      return fs.existsSync(destAbs) || hasParentFileConflict(destAbs);
+    };
+    if (needsDisambiguation()) {
+      const posixDir = path.posix.dirname(targetRel);
+      const posixBase = path.posix.basename(targetRel);
+      const ext = path.posix.extname(posixBase);
+      const stem = ext ? posixBase.slice(0, -ext.length) : posixBase;
+      for (let attempt = 0; attempt < 1000; attempt++) {
+        const suffix = attempt === 0 ? `-${shortHash}` : `-${shortHash}-${attempt + 1}`;
+        const candName = `${stem}${suffix}${ext}`;
+        const candRel = posixDir && posixDir !== "." ? `${posixDir}/${candName}` : candName;
+        const candAbs = resolveSafeDest(candRel);
+        if (hasParentFileConflict(candAbs)) continue;
+        const candDbRel = path.posix.join("library", subDir, candRel);
+        const candExisting = db.prepare("SELECT * FROM library_items WHERE rel_path = ?").get(candDbRel);
+        if (candExisting && candExisting.sha256 === digest) {
+          targetRel = candRel;
+          destAbs = candAbs;
+          relPath = candDbRel;
+          existing = candExisting;
+          break;
+        }
+        if (!candExisting && !fs.existsSync(candAbs)) {
+          targetRel = candRel;
+          destAbs = candAbs;
+          relPath = candDbRel;
+          existing = null;
+          break;
+        }
+      }
+    }
+  }
+
+  const baseName = path.posix.basename(targetRel);
   const mimeType = guessMimeType(baseName);
-  const destAbs = path.join(destDir, baseName);
-  if (!sourcePath || path.resolve(sourcePath) !== destAbs) {
+  if (!inPlaceSource) {
+    fs.mkdirSync(path.dirname(destAbs), { recursive: true });
     fs.writeFileSync(destAbs, rawBuf);
   }
 
@@ -4294,9 +4507,9 @@ function ingestLibraryItem(workspacePath, { sourcePath, content, filename, categ
     const extRes = extractDocumentSync(destAbs, mimeType, workspacePath);
     if (extRes && extRes.ok === false) {
       try {
-        if (!sourcePath || path.resolve(sourcePath) !== destAbs) fs.unlinkSync(destAbs);
+        if (!inPlaceSource && !existing) fs.unlinkSync(destAbs);
       } catch {}
-      throw new Error(extRes.error || `Failed to extract '${baseName}'.`);
+      throw new Error(extRes.error || `Failed to extract '${targetRel}'.`);
     }
     if (extRes && extRes.ok) {
       pageCount = extRes.pageCount ?? null;
@@ -4305,23 +4518,25 @@ function ingestLibraryItem(workspacePath, { sourcePath, content, filename, categ
     } else if (mimeType === "application/pdf") {
       pageCount = detectPdfPagesFallback(rawBuf);
       if (pageCount > 1000) {
-        throw new Error(`Uploaded file '${baseName}' is too large (${pageCount} pages; maximum supported is 1,000 pages).`);
+        try {
+          if (!inPlaceSource && !existing) fs.unlinkSync(destAbs);
+        } catch {}
+        throw new Error(`Uploaded file '${targetRel}' is too large (${pageCount} pages; maximum supported is 1,000 pages).`);
       }
       pdfMode = pageCount <= 100 ? "visual_and_text" : "text_only";
     }
   }
 
-  const relPath = path.posix.join("library", subDir, baseName);
-  const digest = sha256Hex(rawBuf);
   const textForTokens = extractedText !== null ? extractedText : (isStructuredBinaryMime(mimeType, destAbs) ? "" : rawBuf.toString("utf8"));
   const baseTokens = estimateTokens(textForTokens);
   const tokenCount = mimeType.startsWith("image/") || mimeType === "application/pdf"
     ? Math.max(baseTokens, (pageCount || 1) * 250)
     : baseTokens;
 
-  const db = openProjectDb(workspacePath);
-  const existing = db.prepare("SELECT * FROM library_items WHERE rel_path = ?").get(relPath);
-  const itemId = existing ? existing.item_id : `lib-${digest.slice(0, 10)}`;
+  let itemId = existing ? existing.item_id : `lib-${digest.slice(0, 10)}`;
+  if (!existing && db.prepare("SELECT 1 FROM library_items WHERE item_id = ?").get(itemId)) {
+    itemId = `lib-${sha256Hex(`${relPath}\0${digest}`).slice(0, 10)}`;
+  }
   const ts = nowIso();
 
   if (extractedText !== null) {
@@ -4356,7 +4571,7 @@ function ingestLibraryItem(workspacePath, { sourcePath, content, filename, categ
     category,
     sourceType,
     producerThreadId || null,
-    title || baseName,
+    title || targetRel,
     relPath,
     mimeType,
     rawBuf.length,
@@ -6350,6 +6565,7 @@ module.exports = {
   createPendingRoutineThread,
   extractStructureAwareChunks,
   getExtractedTextPath,
+  sanitizeLibraryRelativePath,
   readLibraryItemText,
   getActiveEmbeddingModelName,
   triggerPythonRagEmbed,

@@ -383,5 +383,43 @@ test("Sidecar Daemon HTTP/SSE APIs, CORS/CSP/Token Security (GAP-09, GAP-04), an
     }
     assert.ok(uiHtml.includes('<option value="worktree">worktree</option>'));
     assert.ok(uiHtml.includes("Unarchive"));
+    assert.ok(uiHtml.includes("webkitRelativePath"));
+    assert.ok(uiHtml.includes("relativePath:"));
+
+    // 5. GAP-16: /api/library/upload preserves relative subpaths, disambiguates collisions, and rejects traversal
+    const upA = await daemon.request("POST", "/api/library/upload", auth, {
+      workspacePath: wsWt,
+      filename: "a/notes.md",
+      relativePath: "a/notes.md",
+      textContent: "Notes A"
+    });
+    assert.equal(upA.status, 200);
+    assert.equal(upA.json.item.rel_path, "library/inputs/a/notes.md");
+
+    const upB = await daemon.request("POST", "/api/library/upload", auth, {
+      workspacePath: wsWt,
+      filename: "b/notes.md",
+      relativePath: "b/notes.md",
+      textContent: "Notes B"
+    });
+    assert.equal(upB.status, 200);
+    assert.equal(upB.json.item.rel_path, "library/inputs/b/notes.md");
+
+    const upB2 = await daemon.request("POST", "/api/library/upload", auth, {
+      workspacePath: wsWt,
+      filename: "b/notes.md",
+      relativePath: "b/notes.md",
+      textContent: "Notes B v2"
+    });
+    assert.equal(upB2.status, 200);
+    assert.notEqual(upB2.json.item.rel_path, upB.json.item.rel_path);
+
+    const upTrav = await daemon.request("POST", "/api/library/upload", auth, {
+      workspacePath: wsWt,
+      filename: "../outside.md",
+      relativePath: "../outside.md",
+      textContent: "escape"
+    });
+    assert.equal(upTrav.status, 400);
   });
 });
