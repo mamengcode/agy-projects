@@ -826,6 +826,7 @@ function saveProjectConfig(workspacePath, cfg) {
   // Sync summary entry in global registry under lock
   const absWs = path.resolve(workspacePath);
   const nextCoordId = cfg.coordinatorConversationId ? String(cfg.coordinatorConversationId).trim() : null;
+  const staleWorkspaces = new Set();
   updateRegistry((reg) => {
     const idx = reg.projects.findIndex((p) => p.projectId === cfg.projectId || path.resolve(p.workspacePath) === absWs);
     const prevCoordId = idx >= 0 ? reg.projects[idx]?.coordinatorConversationId : null;
@@ -833,6 +834,20 @@ function saveProjectConfig(workspacePath, cfg) {
       delete reg.boundConversations[prevCoordId];
     }
     if (nextCoordId) {
+      const prevBound = reg.boundConversations[nextCoordId];
+      if (prevBound?.workspacePath && path.resolve(prevBound.workspacePath) !== absWs) {
+        staleWorkspaces.add(path.resolve(prevBound.workspacePath));
+      }
+      for (const other of reg.projects) {
+        if (!other || !other.workspacePath) continue;
+        const otherWs = path.resolve(other.workspacePath);
+        if (other.projectId === cfg.projectId || otherWs === absWs) continue;
+        if (other.coordinatorConversationId === nextCoordId) {
+          other.coordinatorConversationId = null;
+          other.updatedAt = cfg.updatedAt;
+          staleWorkspaces.add(otherWs);
+        }
+      }
       reg.boundConversations[nextCoordId] = {
         workspacePath: absWs,
         role: "coordinator",
@@ -854,6 +869,19 @@ function saveProjectConfig(workspacePath, cfg) {
     else reg.projects.push(entry);
     if (!reg.activeProjectId) reg.activeProjectId = cfg.projectId;
   });
+
+  // Clear any stale coordinatorConversationId on prior project config.json files (GAP-18)
+  for (const staleWs of staleWorkspaces) {
+    try {
+      if (!hasProjectInitialized(staleWs)) continue;
+      const staleCfg = loadProjectConfig(staleWs);
+      if (staleCfg && staleCfg.coordinatorConversationId === nextCoordId) {
+        staleCfg.coordinatorConversationId = null;
+        staleCfg.updatedAt = nowIso();
+        writeJsonAtomic(path.join(getProjectDir(staleWs), "config.json"), staleCfg, 0o600);
+      }
+    } catch {}
+  }
   return cfg;
 }
 
@@ -2675,7 +2703,8 @@ function reconcileExpiredDispatches(workspacePath, { now = nowIso(), appDataDir 
         groupRe && rosterMembers
           ? Object.entries(rosterMembers).filter(([k, rm]) => rm && typeof rm === "object" && groupRe.test(k))
           : [];
-      let skipErrorTransition = t.ui_bucket === "resolved";
+      let skipErrorTransition =
+        t.ui_bucket === "resolved" || t.ui_bucket === "paused" || cfg?.status === "paused";
       if (!skipErrorTransition && d.action === "kill") {
         if (
           t.swarm_state === "killed" ||
@@ -5095,11 +5124,33 @@ function applyPrViewResult(workspacePath, db, cfg, repo, pr, raw, { triggerAutoF
 function finalizeAutoFixSpawn(workspacePath, db, pr, pending, spawnRes) {
   if (!pending) return;
   if (spawnRes && spawnRes.started === false) {
-    if ((spawnRes.reason === "auth_required" || spawnRes.markWaitingOnYou) && pending.ownerThread) {
+    // Transient thread quota exhaustion: allow retry once a slot opens
+    if (spawnRes.reason === "quota_exceeded") {
+      return;
+    }
+    // Non-timeout relay / auth failure: record eventHash & increment attempts to prevent 60s infinite retry loops (GAP-13)
+    const nextAttempts = Number(pending.attempts || 0) + 1;
+    const hitThreeStrikes = nextAttempts >= 3;
+    db.prepare(`
+      UPDATE pull_requests
+      SET autofix_attempts = ?,
+          autofix_enabled = CASE WHEN ? THEN 0 ELSE autofix_enabled END,
+          last_seen_event_hash = ?,
+          updated_at = ?
+      WHERE pr_id = ?
+    `).run(nextAttempts, hitThreeStrikes ? 1 : 0, pending.eventHash, nowIso(), pr.pr_id);
+
+    if (pending.ownerThread) {
+      const reasonMsg =
+        spawnRes.reason === "auth_required"
+          ? spawnRes.error || "Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1)."
+          : spawnRes.error || `Auto-Fix relay failed on PR #${pr.pr_number} (${pending.ciStatus}).`;
       updateThreadState(workspacePath, {
         threadId: pr.thread_id,
         uiBucket: "waiting_on_you",
-        blockingQuestion: spawnRes.error || "Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1).",
+        blockingQuestion: hitThreeStrikes
+          ? `Auto-Fix paused after 3 failed attempts on PR #${pr.pr_number}: ${reasonMsg}`
+          : reasonMsg,
         blockingIsError: true,
         activeDispatchId: null
       });

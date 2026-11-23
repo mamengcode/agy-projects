@@ -479,6 +479,7 @@ async function relayToCoordinator(
     started: Boolean(sendRes.timedOut),
     spawnFailed: false,
     timedOut: Boolean(sendRes.timedOut),
+    reason: sendRes.timedOut ? "relay_timeout" : "relay_failed",
     dispatchId: dispatch.dispatchId,
     error: sendRes.error || "agentapi send-message failed"
   };
@@ -1070,6 +1071,8 @@ async function runCronTick() {
 
     for (const p of reg.projects) {
       if (!p?.workspacePath || !db.hasProjectInitialized(p.workspacePath)) continue;
+      const cfg = db.loadProjectConfig(p.workspacePath);
+      if (!cfg || cfg.status !== "active") continue;
       let shouldBroadcast = false;
       try {
         const exp = db.reconcileExpiredDispatches(p.workspacePath, { now: nowIsoStr });
@@ -1080,8 +1083,7 @@ async function runCronTick() {
         if (syncRes && Number(syncRes.changes || 0) > 0) shouldBroadcast = true;
       } catch {}
       try {
-        const cfg = db.loadProjectConfig(p.workspacePath);
-        if (cfg && cfg.status === "active") {
+        if (cfg.status === "active") {
           const res = await db.processDueSchedules(p.workspacePath, {
             now,
             onDispatch: async ({ workspacePath, routine, thread, normRole, dispatch, isSwarm }) => {
@@ -2193,8 +2195,9 @@ const server = http.createServer(async (req, res) => {
 
     if (pathname === "/api/prs/toggle-autofix") {
       const sql = db.openProjectDb(ws);
-      sql.prepare("UPDATE pull_requests SET autofix_enabled = ?, autofix_attempts = 0, updated_at = ? WHERE pr_id = ?")
-        .run(body.enabled ? 1 : 0, db.nowIso(), body.prId);
+      sql.prepare(
+        "UPDATE pull_requests SET autofix_enabled = ?, autofix_attempts = 0, last_seen_event_hash = CASE WHEN ? = 1 THEN NULL ELSE last_seen_event_hash END, updated_at = ? WHERE pr_id = ?"
+      ).run(body.enabled ? 1 : 0, body.enabled ? 1 : 0, db.nowIso(), body.prId);
       broadcastSnapshot(ws);
       return sendJson(res, 200, { ok: true });
     }

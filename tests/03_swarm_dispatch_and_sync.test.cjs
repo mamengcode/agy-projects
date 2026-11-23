@@ -183,4 +183,34 @@ test("Swarm dispatch lifecycle, nonce verification, untrusted context, and swarm
     assert.equal(rowClaimed.status, "expired");
     assert.equal(rowClaimed.reserved_slots, 0);
   });
+
+  await t.test("GAP-12: reconcileExpiredDispatches preserves paused threads without clobbering to waiting_on_you", () => {
+    const sql = db.openProjectDb(ws);
+    const [tPaused] = db.proposeThreads(ws, [{ title: "Paused Task", description: "d", role: "implementer" }]);
+    const dPaused = db.createHubDispatch(ws, {
+      threadId: tPaused.thread_id,
+      action: "start",
+      payload: { role: "implementer", title: tPaused.title, prompt: "d" },
+      reservedSlots: 1
+    });
+    sql.prepare(
+      "UPDATE threads SET ui_bucket = 'paused', pre_pause_bucket = 'working', active_dispatch_id = ?, blocking_is_error = 0 WHERE thread_id = ?"
+    ).run(dPaused.dispatchId, tPaused.thread_id);
+    sql.prepare("UPDATE hub_dispatches SET claim_expires_at = ? WHERE dispatch_id = ?").run(
+      "2000-01-01T00:00:00.000Z",
+      dPaused.dispatchId
+    );
+
+    const rec = db.reconcileExpiredDispatches(ws, { appDataDir: env.appData });
+    assert.ok(rec.expired.includes(dPaused.dispatchId));
+
+    const dispRow = sql.prepare("SELECT status, reserved_slots FROM hub_dispatches WHERE dispatch_id = ?").get(dPaused.dispatchId);
+    const threadRow = sql.prepare("SELECT ui_bucket, pre_pause_bucket, active_dispatch_id, blocking_is_error FROM threads WHERE thread_id = ?").get(tPaused.thread_id);
+    assert.equal(dispRow.status, "expired");
+    assert.equal(dispRow.reserved_slots, 0);
+    assert.equal(threadRow.ui_bucket, "paused");
+    assert.equal(threadRow.pre_pause_bucket, "working");
+    assert.equal(threadRow.active_dispatch_id, null);
+    assert.equal(threadRow.blocking_is_error, 0);
+  });
 });

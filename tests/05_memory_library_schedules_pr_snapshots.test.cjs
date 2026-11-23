@@ -246,6 +246,80 @@ test("Memory curation, Library ingestion & search, Schedules, PRs, and Privacy-S
 
       const syncedMerged = db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: false });
       assert.equal(syncedMerged[0].state, "MERGED");
+
+      // GAP-13: Non-timeout relay failure must record eventHash & attempts and not loop every 60s
+      const prOwner2 = db.registerThread(ws, { role: "implementer", title: "PR Owner 2" });
+      const pr2Branch = `project/${prOwner2.thread_id}`;
+      const sql2 = db.openProjectDb(ws);
+      sql2.prepare("UPDATE threads SET branch_name = ? WHERE thread_id = ?").run(pr2Branch, prOwner2.thread_id);
+      fs.writeFileSync(
+        ghStateFile,
+        JSON.stringify({
+          list: [
+            {
+              number: 43,
+              title: "Relay failure PR",
+              headRefName: pr2Branch,
+              baseRefName: "main",
+              url: "https://github.com/org/demo/pull/43"
+            }
+          ],
+          view: {
+            state: "OPEN",
+            reviewDecision: "CHANGES_REQUESTED",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [{ name: "lint", conclusion: "FAILURE" }],
+            reviews: [],
+            comments: [],
+            additions: 5,
+            deletions: 1,
+            changedFiles: 1
+          }
+        })
+      );
+
+      let relayCalls = 0;
+      const failRelay = () => {
+        relayCalls++;
+        return {
+          dispatchedVia: "swarm",
+          ok: false,
+          started: false,
+          spawnFailed: false,
+          timedOut: false,
+          reason: "relay_failed",
+          error: "agentapi send-message failed"
+        };
+      };
+
+      // Poll 1: fails -> records eventHash + attempt=1 + waiting_on_you
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 1);
+      const pr43After1 = sql2.prepare("SELECT * FROM pull_requests WHERE pr_number = 43").get();
+      assert.equal(pr43After1.autofix_attempts, 1);
+      assert.ok(pr43After1.last_seen_event_hash);
+      const owner2After1 = sql2.prepare("SELECT ui_bucket, blocking_is_error FROM threads WHERE thread_id = ?").get(prOwner2.thread_id);
+      assert.equal(owner2After1.ui_bucket, "waiting_on_you");
+      assert.equal(owner2After1.blocking_is_error, 1);
+
+      // Poll 2 (same unchanged event): must NOT re-fire relay
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 1);
+
+      // Poll 3 & 4 (new distinct failure events): attempts reach 3 and auto-fix disables
+      const stNew1 = JSON.parse(fs.readFileSync(ghStateFile, "utf8"));
+      stNew1.view.statusCheckRollup.push({ name: "unit", conclusion: "FAILURE" });
+      fs.writeFileSync(ghStateFile, JSON.stringify(stNew1));
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 2);
+
+      stNew1.view.statusCheckRollup.push({ name: "e2e", conclusion: "FAILURE" });
+      fs.writeFileSync(ghStateFile, JSON.stringify(stNew1));
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 3);
+      const pr43After3 = sql2.prepare("SELECT autofix_attempts, autofix_enabled FROM pull_requests WHERE pr_number = 43").get();
+      assert.equal(pr43After3.autofix_attempts, 3);
+      assert.equal(pr43After3.autofix_enabled, 0);
     } finally {
       process.env.PATH = prevPath;
     }

@@ -162,4 +162,30 @@ test("Project lifecycle, registry, workspace resolution (GAP-04), and settings/m
       /Invalid model/
     );
   });
+
+  await t.test("GAP-18: re-binding coordinatorConversationId clears stale binding on prior projects", () => {
+    const sharedCoord = "coord-rebind-1";
+    db.selectProject({ projectId: pidA, bindCoordinatorConversationId: sharedCoord });
+    assert.equal(db.loadProjectConfig(wsA).coordinatorConversationId, sharedCoord);
+
+    // Re-bind same conversation to Project B
+    db.selectProject({ projectId: pidB, bindCoordinatorConversationId: sharedCoord });
+    assert.equal(db.loadProjectConfig(wsA).coordinatorConversationId, null);
+    assert.equal(db.loadProjectConfig(wsB).coordinatorConversationId, sharedCoord);
+
+    const reg = db.loadRegistry();
+    const regA = reg.projects.find((p) => p.projectId === pidA);
+    const regB = reg.projects.find((p) => p.projectId === pidB);
+    assert.equal(regA.coordinatorConversationId, null);
+    assert.equal(regB.coordinatorConversationId, sharedCoord);
+    const binding = db.resolveSessionBinding(sharedCoord, []);
+    assert.equal(binding.bound, true);
+    assert.equal(binding.workspacePath, path.resolve(wsB));
+
+    // Creating Project C with same coordinatorConversationId clears Project B too
+    const wsC = env.makeWorkspace("proj-c");
+    db.createProject({ name: "Gamma", workspacePath: wsC, coordinatorConversationId: sharedCoord });
+    assert.equal(db.loadProjectConfig(wsB).coordinatorConversationId, null);
+    assert.equal(db.loadProjectConfig(wsC).coordinatorConversationId, sharedCoord);
+  });
 });
