@@ -720,4 +720,25 @@ console.log(JSON.stringify({ ok: true }));
       fs.rmSync(path.join(env.sharedData, "venv"), { recursive: true, force: true });
     }
   });
+
+  await t.test("GAP-20: bindRepository detects and returns repo rule file paths alongside claude_md_etag", () => {
+    const ruleRepo = env.makeGitRepo("repo-with-rules");
+    fs.writeFileSync(path.join(ruleRepo, "CLAUDE.md"), "# Claude Rules\n", "utf8");
+    fs.writeFileSync(path.join(ruleRepo, "AGENTS.md"), "# Agents Rules\n", "utf8");
+    fs.writeFileSync(path.join(ruleRepo, ".cursorrules"), "cursor rules\n", "utf8");
+    fs.mkdirSync(path.join(ruleRepo, ".agents", "rules"), { recursive: true });
+    fs.writeFileSync(path.join(ruleRepo, ".agents", "rules", "style.md"), "# Style\n", "utf8");
+
+    const bound = db.bindRepository(ws, { localPath: ruleRepo, name: "repo-with-rules" });
+    assert.ok(bound.claude_md_etag && bound.claude_md_etag.length === 16);
+    assert.equal(bound.claudeMdEtag, bound.claude_md_etag);
+    assert.deepEqual(bound.detectedRuleFiles, [
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".cursorrules",
+      ".agents/rules/style.md"
+    ]);
+    assert.equal(bound.detectedRuleFilePaths.length, 4);
+    assert.ok(bound.detectedRuleFilePaths.every((p) => fs.existsSync(p)));
+  });
 });

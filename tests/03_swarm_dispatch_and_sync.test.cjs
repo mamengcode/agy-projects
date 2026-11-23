@@ -252,4 +252,49 @@ test("Swarm dispatch lifecycle, nonce verification, untrusted context, and swarm
     // Clean up git worktree cleanly
     db.manageWorktree(wsWt, { action: "cleanup", threadId: proposed.thread_id });
   });
+
+  await t.test("GAP-20: claimHubDispatch on 'kill' returns suggestedPlan excluding the killed worker", () => {
+    const wsKill = env.makeWorkspace("swarm-kill-plan");
+    const coordKill = "coord-kill-plan";
+    db.createProject({ name: "Kill Plan Proj", workspacePath: wsKill, goal: "Maintain clean plan", coordinatorConversationId: coordKill });
+
+    const tKeep = db.registerThread(wsKill, {
+      threadId: "t-keep",
+      title: "Build API endpoints",
+      role: "implementer",
+      conversationId: "conv-keep",
+      executionBackend: "swarm",
+      swarmMemberName: "impl-keep",
+      swarmState: "working",
+      swarmOriginCoordinatorId: coordKill
+    });
+    const tDrop = db.registerThread(wsKill, {
+      threadId: "t-drop",
+      title: "Audit legacy code",
+      role: "explorer",
+      conversationId: "conv-drop",
+      executionBackend: "swarm",
+      swarmMemberName: "explorer-drop",
+      swarmState: "waiting",
+      swarmOriginCoordinatorId: coordKill
+    });
+
+    const killDisp = db.createHubDispatch(wsKill, {
+      threadId: tDrop.thread_id,
+      action: "kill",
+      targetMemberName: "explorer-drop",
+      baselineHeadSeq: 0,
+      reservedSlots: 0
+    });
+
+    const claimedKill = db.claimHubDispatch(wsKill, killDisp.dispatchId, killDisp.nonce);
+    assert.equal(claimedKill.action, "kill");
+    assert.deepEqual(claimedKill.killArgs, { action: "kill", name: "explorer-drop" });
+    assert.ok(claimedKill.suggestedPlan && claimedKill.suggestedPlan.goal, "kill claim should return suggestedPlan");
+    assert.equal(Boolean(claimedKill.suggestedPlan.tasks["impl-keep"]), true, "remaining worker should stay in suggestedPlan.tasks");
+    assert.equal(Object.prototype.hasOwnProperty.call(claimedKill.suggestedPlan.tasks, "explorer-drop"), false, "killed worker must be excluded from suggestedPlan.tasks");
+    const allThreadTasks = claimedKill.suggestedPlan.threads.flatMap((th) => th.tasks || []);
+    assert.ok(allThreadTasks.includes("impl-keep"));
+    assert.equal(allThreadTasks.includes("explorer-drop"), false);
+  });
 });

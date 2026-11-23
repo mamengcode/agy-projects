@@ -487,6 +487,14 @@ const TOOLS = [
   }
 ];
 
+const PROJECT_HUB_PILL = "[Project Hub](sidecar://agy-projects/project_hub/ui.html)";
+const SWARM_UI_PILL = "[Open the Swarm UI](sidecar://swarm/swarm_board/?auto_open=false)";
+const SIDECAR_PILL_FIELDS = {
+  sidecarPill: PROJECT_HUB_PILL,
+  swarmPill: SWARM_UI_PILL,
+  sidecarPills: [PROJECT_HUB_PILL, SWARM_UI_PILL]
+};
+
 function executeTool(name, args = {}) {
   switch (name) {
     case "create_project": {
@@ -501,7 +509,7 @@ function executeTool(name, args = {}) {
       notifySidecar(created.workspacePath);
       return {
         ...created,
-        sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
+        ...SIDECAR_PILL_FIELDS
       };
     }
 
@@ -517,7 +525,7 @@ function executeTool(name, args = {}) {
       notifySidecar(sel.workspacePath);
       return {
         ...sel,
-        sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
+        ...SIDECAR_PILL_FIELDS
       };
     }
 
@@ -597,7 +605,10 @@ function executeTool(name, args = {}) {
         summary: args.summary || ""
       });
       notifySidecar(ws);
-      return res;
+      return {
+        ...res,
+        ...SIDECAR_PILL_FIELDS
+      };
     }
 
     case "propose_threads": {
@@ -730,7 +741,7 @@ function executeTool(name, args = {}) {
           counts: { total: 0, working: 0, waiting: 0, killed: 0 },
           pendingDispatches: []
         },
-        sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
+        ...SIDECAR_PILL_FIELDS
       };
     }
 

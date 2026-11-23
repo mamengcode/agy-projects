@@ -237,5 +237,33 @@ test("MCP JSON-RPC protocol, tool schemas (GAP-01, GAP-05), and tool round-trips
     assert.equal(r11.isError, false);
     assert.equal(r11.data.rolledOver, true);
     assert.equal(r11.data.coordinatorConversationId, "coord-mcp-2");
+
+    // GAP-20: verify both sidecar pills on create_project, select_project, get_project_overview, rollover_coordinator_session
+    const r1 = parseResult(1);
+    assert.equal(r1.isError, false);
+    const selReply = env.callMcp([
+      {
+        jsonrpc: "2.0",
+        id: 12,
+        method: "tools/call",
+        params: { name: "select_project", arguments: { workspacePath: wsA } }
+      }
+    ]);
+    const r12Raw = selReply.find((m) => m.id === 12).result;
+    const r12 = { isError: r12Raw.isError, data: JSON.parse(r12Raw.content[0].text) };
+    assert.equal(r12.isError, false);
+
+    const hubPill = "[Project Hub](sidecar://agy-projects/project_hub/ui.html)";
+    const swarmPill = "[Open the Swarm UI](sidecar://swarm/swarm_board/?auto_open=false)";
+    for (const [label, resObj] of [
+      ["create_project", r1.data],
+      ["select_project", r12.data],
+      ["get_project_overview", r7.data],
+      ["rollover_coordinator_session", r11.data]
+    ]) {
+      assert.equal(resObj.sidecarPill, hubPill, `${label} missing sidecarPill`);
+      assert.equal(resObj.swarmPill, swarmPill, `${label} missing swarmPill`);
+      assert.deepEqual(resObj.sidecarPills, [hubPill, swarmPill], `${label} missing sidecarPills`);
+    }
   });
 });

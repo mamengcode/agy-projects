@@ -1972,31 +1972,52 @@ function createProject({ name, workspacePath, goal = "", instructions = "", coor
 
 // ---------- Repositories & Git Worktrees ----------
 
-function computeRepoRulesEtag(repoDir) {
+function detectRepoRuleFiles(repoDir) {
   const absRepo = path.resolve(String(repoDir || ""));
-  if (!absRepo || !fs.existsSync(absRepo)) return null;
+  if (!absRepo || !fs.existsSync(absRepo)) return [];
   const candidates = [
     path.join(absRepo, "CLAUDE.md"),
     path.join(absRepo, "GEMINI.md"),
-    path.join(absRepo, "AGENTS.md")
+    path.join(absRepo, "AGENTS.md"),
+    path.join(absRepo, ".cursorrules")
   ];
-  const claudeRulesDir = path.join(absRepo, ".claude", "rules");
-  if (fs.existsSync(claudeRulesDir)) {
+  const ruleDirs = [
+    { dir: path.join(absRepo, ".claude", "rules"), exts: [".md"] },
+    { dir: path.join(absRepo, ".agents", "rules"), exts: [".md"] },
+    { dir: path.join(absRepo, ".cursor", "rules"), exts: [".md", ".mdc"] }
+  ];
+  for (const { dir, exts } of ruleDirs) {
+    if (!fs.existsSync(dir)) continue;
     try {
-      const extraFiles = fs.readdirSync(claudeRulesDir).filter((f) => f.endsWith(".md")).sort();
+      const extraFiles = fs
+        .readdirSync(dir)
+        .filter((f) => exts.some((ext) => f.toLowerCase().endsWith(ext)))
+        .sort();
       for (const f of extraFiles) {
-        candidates.push(path.join(claudeRulesDir, f));
+        candidates.push(path.join(dir, f));
       }
     } catch {}
   }
-  const hash = crypto.createHash("sha256");
-  let count = 0;
+  const found = [];
   for (const rp of candidates) {
     try {
       if (!fs.existsSync(rp) || !fs.statSync(rp).isFile()) continue;
       const relPosixPath = path.relative(absRepo, rp).split(path.sep).join("/");
-      const content = fs.readFileSync(rp, "utf8");
-      hash.update(`${relPosixPath}\0${content}\0`);
+      found.push({ relPath: relPosixPath, absPath: rp });
+    } catch {}
+  }
+  return found;
+}
+
+function computeRepoRulesEtag(repoDir) {
+  const found = detectRepoRuleFiles(repoDir);
+  if (found.length === 0) return null;
+  const hash = crypto.createHash("sha256");
+  let count = 0;
+  for (const { relPath, absPath } of found) {
+    try {
+      const content = fs.readFileSync(absPath, "utf8");
+      hash.update(`${relPath}\0${content}\0`);
       count++;
     } catch {}
   }
@@ -2020,6 +2041,7 @@ function bindRepository(workspacePath, { localPath, name, defaultBranch }) {
     } catch {}
   }
 
+  const ruleFiles = detectRepoRuleFiles(absRepo);
   const claudeMdEtag = computeRepoRulesEtag(absRepo);
 
   const existing = db.prepare("SELECT repo_id FROM repositories WHERE local_path = ?").get(absRepo);
@@ -2035,7 +2057,13 @@ function bindRepository(workspacePath, { localPath, name, defaultBranch }) {
       claude_md_etag = excluded.claude_md_etag
   `).run(repoId, repoName, absRepo, remoteUrl, detectedBranch, claudeMdEtag, nowIso());
 
-  return db.prepare("SELECT * FROM repositories WHERE repo_id = ?").get(repoId);
+  const row = db.prepare("SELECT * FROM repositories WHERE repo_id = ?").get(repoId);
+  return {
+    ...row,
+    claudeMdEtag: row?.claude_md_etag ?? claudeMdEtag,
+    detectedRuleFiles: ruleFiles.map((f) => f.relPath),
+    detectedRuleFilePaths: ruleFiles.map((f) => f.absPath)
+  };
 }
 
 function listLinkedGitWorktrees(repoLocalPath) {
@@ -3227,6 +3255,10 @@ function buildSuggestedSwarmPlan(dbConn, cfg, absWs, claimedInfo = null) {
       title: clipWords(claimedInfo.title || claimedInfo.memberName, 6) || claimedInfo.memberName
     });
   }
+  const excludeMember = claimedInfo?.excludeMemberName ? String(claimedInfo.excludeMemberName).trim() : "";
+  if (excludeMember) {
+    membersByName.delete(excludeMember);
+  }
 
   const tasks = {};
   for (const [mName, entry] of membersByName.entries()) {
@@ -3475,6 +3507,9 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
   }
 
   if (claimed.action === "kill") {
+    const suggestedPlan = buildSuggestedSwarmPlan(db, cfg, absWs, {
+      excludeMemberName: targetName
+    });
     return {
       ok: true,
       claimed: true,
@@ -3486,6 +3521,7 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
         action: "kill",
         name: targetName
       },
+      suggestedPlan,
       matchExpiresAt
     };
   }
@@ -6542,6 +6578,7 @@ module.exports = {
   transitionProjectLifecycle,
   rolloverCoordinatorSession,
   ensureThreadIsolationCwd,
+  detectRepoRuleFiles,
   computeRepoRulesEtag,
   bindRepository,
   unbindRepository,
