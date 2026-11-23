@@ -183,11 +183,15 @@ function isGitWorkspace(workspacePath) {
 function resolveSwarmWorkspace(cfg, workspacePath, role, explicitWorkspace) {
   if (!isGitWorkspace(workspacePath)) return "inherit";
   const explicit = String(explicitWorkspace || "").trim();
+  if (explicit === "worktree") {
+    return "inherit";
+  }
   if (explicit === "inherit" || explicit === "share" || explicit === "branch") {
     return explicit;
   }
   if (!isMutatingRole(normalizeRole(role))) return "inherit";
   const defMode = String(cfg?.orchestration?.defaultWorkspaceMode || "share").trim();
+  if (defMode === "worktree") return "inherit";
   return defMode === "share" || defMode === "branch" || defMode === "inherit" ? defMode : "share";
 }
 
@@ -1144,8 +1148,8 @@ function updateProjectSettings(workspacePath, patch = {}) {
 
   const nextWsMode = pickOrch("defaultWorkspaceMode");
   if (nextWsMode !== undefined) {
-    if (!["share", "branch", "inherit"].includes(nextWsMode)) {
-      throw new Error(`Invalid defaultWorkspaceMode '${nextWsMode}'. Must be 'share', 'branch', or 'inherit'.`);
+    if (!["share", "branch", "inherit", "worktree"].includes(nextWsMode)) {
+      throw new Error(`Invalid defaultWorkspaceMode '${nextWsMode}'. Must be 'share', 'branch', 'worktree', or 'inherit'.`);
     }
     cfg.orchestration.defaultWorkspaceMode = nextWsMode;
   }
@@ -2150,21 +2154,61 @@ function unbindRepository(workspacePath, { repoId }) {
   return { removed: cleanId };
 }
 
+function getPreThreadWorktreesMetaPath(workspacePath, safeSlug) {
+  return path.join(getProjectDir(workspacePath), "worktrees", safeSlug, ".worktrees.json");
+}
+
+function loadPreThreadWorktreesMap(workspacePath, threadId, db) {
+  const safeSlug = String(threadId || "").replace(/[^a-zA-Z0-9_-]/g, "-");
+  if (!safeSlug) return {};
+  const metaPath = getPreThreadWorktreesMetaPath(workspacePath, safeSlug);
+  const fromMeta = readJsonSafe(metaPath, null);
+  const out = {};
+  if (isPlainObject(fromMeta)) {
+    for (const [rId, entry] of Object.entries(fromMeta)) {
+      if (isPlainObject(entry) && entry.worktreePath && fs.existsSync(entry.worktreePath)) {
+        out[rId] = entry;
+      }
+    }
+  }
+  // Also scan <projectDir>/worktrees/<safeSlug>/<repo.name> for any repo worktree created before registration
+  const threadWtDir = path.join(getProjectDir(workspacePath), "worktrees", safeSlug);
+  if (fs.existsSync(threadWtDir) && db) {
+    try {
+      const repos = db.prepare("SELECT repo_id, name FROM repositories").all();
+      for (const r of repos) {
+        if (!r?.repo_id || !r?.name || out[r.repo_id]) continue;
+        const candPath = path.join(threadWtDir, r.name);
+        if (fs.existsSync(candPath)) {
+          out[r.repo_id] = {
+            worktreePath: candPath,
+            branchName: `project/${safeSlug}`,
+            repoId: r.repo_id,
+            repoName: r.name
+          };
+        }
+      }
+    } catch {}
+  }
+  return out;
+}
+
 function manageWorktree(workspacePath, { action, threadId, repoId, baseBranch, runSetup = true }) {
   const db = openProjectDb(workspacePath);
   const threadRow = db.prepare("SELECT * FROM threads WHERE thread_id = ?").get(threadId);
-  let worktreesMap = {};
+  const safeSlug = String(threadId).replace(/[^a-zA-Z0-9_-]/g, "-");
+  const threadWtDir = path.join(getProjectDir(workspacePath), "worktrees", safeSlug);
+  const metaPath = getPreThreadWorktreesMetaPath(workspacePath, safeSlug);
+  let worktreesMap = loadPreThreadWorktreesMap(workspacePath, threadId, db);
   try {
     const parsed = JSON.parse(threadRow?.worktrees_json || "{}");
-    if (isPlainObject(parsed)) worktreesMap = parsed;
+    if (isPlainObject(parsed)) worktreesMap = { ...worktreesMap, ...parsed };
   } catch {}
 
   const repo = repoId
     ? db.prepare("SELECT * FROM repositories WHERE repo_id = ?").get(repoId)
     : db.prepare("SELECT * FROM repositories ORDER BY added_at ASC LIMIT 1").get();
 
-  const safeSlug = String(threadId).replace(/[^a-zA-Z0-9_-]/g, "-");
-  const threadWtDir = path.join(getProjectDir(workspacePath), "worktrees", safeSlug);
   const branchName = `project/${safeSlug}`;
 
   if (action === "status") {
@@ -2197,6 +2241,9 @@ function manageWorktree(workspacePath, { action, threadId, repoId, baseBranch, r
       repoId: repo.repo_id,
       repoName: repo.name
     };
+    try {
+      writeJsonAtomic(metaPath, worktreesMap);
+    } catch {}
     db.prepare(
       "UPDATE threads SET worktree_path = ?, branch_name = ?, repo_id = ?, worktrees_json = ?, updated_at = ? WHERE thread_id = ?"
     ).run(wtPath, branchName, repo.repo_id, JSON.stringify(worktreesMap), nowIso(), threadId);
@@ -2332,6 +2379,10 @@ function manageWorktree(workspacePath, { action, threadId, repoId, baseBranch, r
         removeWorktreePath(targetPath, targetRepoId);
       }
       delete worktreesMap[targetRepoId];
+      try {
+        if (Object.keys(worktreesMap).length > 0) writeJsonAtomic(metaPath, worktreesMap);
+        else if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+      } catch {}
       const nextEntry = Object.values(worktreesMap)[0] || null;
       db.prepare(
         "UPDATE threads SET worktree_path = ?, repo_id = ?, worktrees_json = ?, updated_at = ? WHERE thread_id = ?"
@@ -2355,6 +2406,9 @@ function manageWorktree(workspacePath, { action, threadId, repoId, baseBranch, r
     if (threadRow?.worktree_path && !cleanedPaths.includes(threadRow.worktree_path)) {
       removeWorktreePath(threadRow.worktree_path, threadRow.repo_id || null);
     }
+    try {
+      if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+    } catch {}
     removeEmptyThreadDir();
     db.prepare("UPDATE threads SET worktree_path = NULL, worktrees_json = '{}', updated_at = ? WHERE thread_id = ?")
       .run(nowIso(), threadId);
@@ -2362,6 +2416,63 @@ function manageWorktree(workspacePath, { action, threadId, repoId, baseBranch, r
   }
 
   throw new Error(`Unsupported manage_worktree action: ${action}`);
+}
+
+function ensureThreadWorktreeIfNeeded(workspacePath, threadId, { workspaceMode, repoId, cfg: passedCfg } = {}) {
+  if (!threadId) return null;
+  const db = openProjectDb(workspacePath);
+  const cfg = passedCfg || loadProjectConfig(workspacePath);
+  let thread = db.prepare("SELECT * FROM threads WHERE thread_id = ?").get(threadId);
+  const effectiveMode = String(
+    workspaceMode || thread?.workspace_mode || cfg?.orchestration?.defaultWorkspaceMode || "share"
+  ).trim();
+  if (effectiveMode !== "worktree") return thread || null;
+
+  const existingMap = loadPreThreadWorktreesMap(workspacePath, threadId, db);
+  try {
+    const parsed = JSON.parse(thread?.worktrees_json || "{}");
+    if (isPlainObject(parsed)) Object.assign(existingMap, parsed);
+  } catch {}
+  const hasExisting = Boolean(
+    (thread?.worktree_path && fs.existsSync(thread.worktree_path)) ||
+      Object.values(existingMap).some((e) => e && e.worktreePath && fs.existsSync(e.worktreePath))
+  );
+  if (hasExisting) {
+    if (thread && !thread.worktree_path) {
+      const firstEntry = Object.values(existingMap).find((e) => e && e.worktreePath);
+      if (firstEntry) {
+        db.prepare(
+          "UPDATE threads SET worktree_path = ?, repo_id = COALESCE(repo_id, ?), branch_name = COALESCE(branch_name, ?), worktrees_json = ?, updated_at = ? WHERE thread_id = ?"
+        ).run(
+          firstEntry.worktreePath,
+          firstEntry.repoId || null,
+          firstEntry.branchName || null,
+          JSON.stringify(existingMap),
+          nowIso(),
+          threadId
+        );
+        thread = db.prepare("SELECT * FROM threads WHERE thread_id = ?").get(threadId);
+      }
+    }
+    return thread || null;
+  }
+
+  const targetRepoId = repoId || thread?.repo_id || undefined;
+  const repo = targetRepoId
+    ? db.prepare("SELECT * FROM repositories WHERE repo_id = ?").get(targetRepoId)
+    : db.prepare("SELECT * FROM repositories ORDER BY added_at ASC LIMIT 1").get();
+  if (!repo) return thread || null;
+
+  try {
+    manageWorktree(workspacePath, {
+      action: "create",
+      threadId,
+      repoId: repo.repo_id
+    });
+  } catch {
+    return thread || null;
+  }
+  return db.prepare("SELECT * FROM threads WHERE thread_id = ?").get(threadId) || thread || null;
 }
 
 // ---------- Project Lifecycle, Rollover & Thread Isolation Helpers ----------
@@ -2913,6 +3024,30 @@ function buildSwarmWorkerBrief({
       `Call get_dispatch_context(workspacePath=${JSON.stringify(absWs)}, dispatchId=${JSON.stringify(dispatchId)}) (or inspect via gh pr view) for untrusted CI/review details before editing.`
     );
   } else {
+    let wtMap = {};
+    if (resolvedThreadId && hasProjectInitialized(absWs)) {
+      try {
+        wtMap = loadPreThreadWorktreesMap(absWs, resolvedThreadId, openProjectDb(absWs));
+      } catch {}
+    }
+    if (thread?.worktrees_json) {
+      try {
+        const parsedWt = JSON.parse(thread.worktrees_json);
+        if (isPlainObject(parsedWt)) wtMap = { ...wtMap, ...parsedWt };
+      } catch {}
+    }
+    const wtEntries = Object.values(wtMap).filter((e) => e && e.worktreePath);
+    if (wtEntries.length === 1) {
+      const e = wtEntries[0];
+      lines.push(`Worktree: ${e.worktreePath}${e.branchName ? ` (branch: ${e.branchName})` : ""}`);
+    } else if (wtEntries.length > 1) {
+      lines.push("Worktrees:");
+      for (const e of wtEntries) {
+        lines.push(`- ${e.repoName || e.repoId || "repo"}: ${e.worktreePath}${e.branchName ? ` (branch: ${e.branchName})` : ""}`);
+      }
+    } else if (thread?.worktree_path) {
+      lines.push(`Worktree: ${thread.worktree_path}${thread?.branch_name ? ` (branch: ${thread.branch_name})` : ""}`);
+    }
     const safeTitle = sanitizeUntrustedBriefText(thread?.title || "Swarm Worker Task");
     const safeDesc = sanitizeUntrustedBriefText(extraPrompt || thread?.description || "");
     lines.push(
@@ -3169,11 +3304,19 @@ function claimHubDispatch(workspacePath, dispatchId, nonce, { matchTtlSeconds = 
   try {
     payload = JSON.parse(claimed.payload_json || "{}");
   } catch {}
-  const thread = db.prepare("SELECT * FROM threads WHERE thread_id = ?").get(claimed.thread_id);
+  let thread = db.prepare("SELECT * FROM threads WHERE thread_id = ?").get(claimed.thread_id);
   const absWs = path.resolve(workspacePath);
 
   if (claimed.action === "start" || claimed.action === "cron" || claimed.action === "pr_autofix") {
     const role = normalizeRole(payload.role || thread?.role || "implementer");
+    if (claimed.action === "start" || claimed.action === "cron") {
+      const provisioned = ensureThreadWorktreeIfNeeded(absWs, claimed.thread_id, {
+        workspaceMode: payload.workspaceMode || thread?.workspace_mode,
+        repoId: payload.repoId || thread?.repo_id,
+        cfg
+      });
+      if (provisioned) thread = provisioned;
+    }
     const memberName =
       claimed.target_member_name ||
       payload.memberName ||
@@ -3518,9 +3661,21 @@ function registerThread(workspacePath, payload) {
 
   const role = normalizeRole(payload.role || "implementer");
   const wsMode = payload.workspaceMode || cfg?.orchestration?.defaultWorkspaceMode || "share";
+  const preWorktreesMap = loadPreThreadWorktreesMap(workspacePath, id, db);
+  let mergedWorktreesMap = { ...preWorktreesMap };
+  if (existing?.worktrees_json) {
+    try {
+      const exMap = JSON.parse(existing.worktrees_json);
+      if (isPlainObject(exMap)) mergedWorktreesMap = { ...mergedWorktreesMap, ...exMap };
+    } catch {}
+  }
+  const firstPreEntry = Object.values(mergedWorktreesMap)[0] || null;
   const validatedWorktreePath = payload.worktreePath
     ? validateWorktreePath(workspacePath, payload.worktreePath, db)
-    : null;
+    : (existing?.worktree_path || firstPreEntry?.worktreePath || null);
+  const resolvedRepoId = payload.repoId || existing?.repo_id || firstPreEntry?.repoId || null;
+  const resolvedBranchName = payload.branchName || existing?.branch_name || firstPreEntry?.branchName || null;
+  const mergedWorktreesJson = JSON.stringify(mergedWorktreesMap);
   const execBackend = payload.executionBackend
     ? String(payload.executionBackend)
     : existing?.execution_backend || "subagent";
@@ -3554,6 +3709,7 @@ function registerThread(workspacePath, payload) {
         repo_id = COALESCE(?, repo_id),
         branch_name = COALESCE(?, branch_name),
         worktree_path = COALESCE(?, worktree_path),
+        worktrees_json = ?,
         owned_globs_json = COALESCE(?, owned_globs_json),
         swarm_member_name = ?,
         swarm_model = ?,
@@ -3570,9 +3726,10 @@ function registerThread(workspacePath, payload) {
       payload.conversationId || null,
       model,
       wsMode,
-      payload.repoId || null,
-      payload.branchName || null,
+      resolvedRepoId,
+      resolvedBranchName,
       validatedWorktreePath,
+      mergedWorktreesJson,
       Array.isArray(payload.ownedGlobs) ? JSON.stringify(payload.ownedGlobs) : null,
       swarmMemberName,
       swarmModel,
@@ -3588,10 +3745,10 @@ function registerThread(workspacePath, payload) {
       INSERT INTO threads (
         thread_id, title, description, role, ui_bucket, server_status,
         conversation_id, model, workspace_mode, repo_id, branch_name,
-        worktree_path, owned_globs_json, swarm_member_name, swarm_model,
+        worktree_path, worktrees_json, owned_globs_json, swarm_member_name, swarm_model,
         swarm_state, swarm_origin_coordinator_id, execution_backend,
         created_at, updated_at, working_since
-      ) VALUES (?, ?, ?, ?, 'working', 'working', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, 'working', 'working', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       String(payload.title || "Worker Thread"),
@@ -3600,9 +3757,10 @@ function registerThread(workspacePath, payload) {
       payload.conversationId || null,
       model,
       wsMode,
-      payload.repoId || null,
-      payload.branchName || `project/${id}`,
+      resolvedRepoId,
+      resolvedBranchName || `project/${id}`,
       validatedWorktreePath,
+      mergedWorktreesJson,
       JSON.stringify(Array.isArray(payload.ownedGlobs) ? payload.ownedGlobs : []),
       swarmMemberName,
       swarmModel,
@@ -4745,6 +4903,10 @@ async function processDueSchedules(workspacePath, { now = new Date(), onDispatch
           workspaceMode: r.workspace_mode || "share",
           executionBackend: cfg?.orchestration?.executionEngine === "headless" ? "headless" : "subagent"
         });
+        thread = ensureThreadWorktreeIfNeeded(workspacePath, thread.thread_id, {
+          workspaceMode: r.workspace_mode || thread.workspace_mode,
+          cfg
+        }) || thread;
       }
       sql.prepare("UPDATE scheduled_routines SET last_thread_id = ? WHERE routine_id = ?")
         .run(thread.thread_id, r.routine_id);
@@ -6169,6 +6331,7 @@ module.exports = {
   bindRepository,
   unbindRepository,
   manageWorktree,
+  ensureThreadWorktreeIfNeeded,
   proposeThreads,
   getSwarmBoardHeadSync,
   reconcileExpiredDispatches,

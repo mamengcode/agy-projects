@@ -1084,13 +1084,18 @@ async function runCronTick() {
           const res = await db.processDueSchedules(p.workspacePath, {
             now,
             onDispatch: async ({ workspacePath, routine, thread, normRole, dispatch, isSwarm }) => {
-              const runHeadlessRoutineFallback = () =>
-                startHeadlessWorkerOrHandleAuth(workspacePath, {
+              const runHeadlessRoutineFallback = () => {
+                const wtThread =
+                  db.ensureThreadWorktreeIfNeeded(workspacePath, thread.thread_id, {
+                    workspaceMode: routine.workspace_mode || thread.workspace_mode
+                  }) || thread;
+                return startHeadlessWorkerOrHandleAuth(workspacePath, {
                   threadId: thread.thread_id,
                   mode: db.isMutatingRole(normRole) ? "write" : "readonly",
-                  cwd: workspacePath,
+                  cwd: wtThread.worktree_path || workspacePath,
                   prompt: routine.prompt
                 });
+              };
               if (isSwarm && dispatch) {
                 return relayToCoordinator(workspacePath, dispatch, {
                   fallbackHeadless: runHeadlessRoutineFallback
@@ -1617,10 +1622,16 @@ const server = http.createServer(async (req, res) => {
           workspaceMode: row.workspace_mode,
           executionBackend: "headless"
         });
+        started =
+          db.ensureThreadWorktreeIfNeeded(ws, row.thread_id, {
+            workspaceMode: row.workspace_mode,
+            repoId: row.repo_id,
+            cfg
+          }) || started;
         const sp = startHeadlessWorkerOrHandleAuth(ws, {
           threadId: row.thread_id,
           mode: db.isMutatingRole(row.role) ? "write" : "readonly",
-          cwd: row.worktree_path || ws,
+          cwd: started.worktree_path || row.worktree_path || ws,
           prompt: body.prompt || `${row.title}\n\n${row.description}`
         });
         if (sp.headlessAuthMissing) {
@@ -1703,14 +1714,21 @@ const server = http.createServer(async (req, res) => {
           threadId: row.thread_id,
           role: row.role,
           workspaceMode: row.workspace_mode,
-          conversationId: body.conversationId || undefined
+          conversationId: body.conversationId || undefined,
+          executionBackend: body.launchHeadless ? "headless" : (body.executionBackend || "subagent")
         });
+        started =
+          db.ensureThreadWorktreeIfNeeded(ws, row.thread_id, {
+            workspaceMode: row.workspace_mode,
+            repoId: row.repo_id,
+            cfg
+          }) || started;
         let headlessAuthMissing = false;
         if (body.launchHeadless) {
           const sp = startHeadlessWorkerOrHandleAuth(ws, {
             threadId: row.thread_id,
             mode: db.isMutatingRole(row.role) ? "write" : "readonly",
-            cwd: row.worktree_path || ws,
+            cwd: started.worktree_path || row.worktree_path || ws,
             prompt: `${row.title}\n\n${row.description}`
           });
           if (sp.headlessAuthMissing) {
@@ -1743,6 +1761,7 @@ const server = http.createServer(async (req, res) => {
           }
           const dispatchedThreads = [];
           const dispatchIds = [];
+          const failures = [];
           let headlessAuthMissing = false;
           for (const row of rows) {
             try {
@@ -1773,35 +1792,77 @@ const server = http.createServer(async (req, res) => {
                 relayRes.timedOut ||
                 (relayRes.dispatchedVia === "headless" && relayRes.started !== false);
               if (!didAccept) {
+                failures.push({
+                  threadId: row.thread_id,
+                  title: row.title,
+                  code: "relay_failed",
+                  error: relayRes.error || "Swarm relay failed."
+                });
                 break;
               }
               dispatchIds.push(dispatch.dispatchId);
               dispatchedThreads.push(sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(row.thread_id));
-            } catch {
+            } catch (err) {
+              const msg = err?.message || String(err);
+              const isQuota = /Max concurrent|Daily thread spawn|quota/i.test(msg);
+              failures.push({
+                threadId: row.thread_id,
+                title: row.title,
+                code: isQuota ? "quota_exceeded" : "start_error",
+                error: msg
+              });
               break;
             }
           }
           broadcastSnapshot(ws);
+          if (rows.length > 0 && dispatchedThreads.length === 0 && failures.length > 0) {
+            const firstFail = failures[0];
+            const statusCode = firstFail.code === "quota_exceeded" ? 409 : firstFail.code === "relay_failed" ? 502 : 400;
+            return sendJson(res, statusCode, {
+              error: firstFail.error,
+              startedCount: 0,
+              dispatchCount: 0,
+              dispatchIds: [],
+              threads: [],
+              failures,
+              dispatchedVia: "swarm",
+              headlessAuthMissing
+            });
+          }
           return sendJson(res, 200, {
             startedCount: dispatchedThreads.length,
             dispatchCount: dispatchIds.length,
             dispatchIds,
             threads: dispatchedThreads,
+            failures,
+            partialFailure: failures.length > 0,
             dispatchedVia: "swarm",
             headlessAuthMissing
           });
         }
 
         const startedList = [];
+        const failures = [];
         let headlessAuthMissing = false;
         for (const row of rows) {
           try {
-            let st = db.registerThread(ws, { threadId: row.thread_id, role: row.role, workspaceMode: row.workspace_mode });
+            let st = db.registerThread(ws, {
+              threadId: row.thread_id,
+              role: row.role,
+              workspaceMode: row.workspace_mode,
+              executionBackend: body.launchHeadless ? "headless" : (body.executionBackend || "subagent")
+            });
+            st =
+              db.ensureThreadWorktreeIfNeeded(ws, row.thread_id, {
+                workspaceMode: row.workspace_mode,
+                repoId: row.repo_id,
+                cfg
+              }) || st;
             if (body.launchHeadless) {
               const sp = startHeadlessWorkerOrHandleAuth(ws, {
                 threadId: row.thread_id,
                 mode: db.isMutatingRole(row.role) ? "write" : "readonly",
-                cwd: row.worktree_path || ws,
+                cwd: st.worktree_path || row.worktree_path || ws,
                 prompt: `${row.title}\n\n${row.description}`
               });
               if (sp.headlessAuthMissing) {
@@ -1810,12 +1871,37 @@ const server = http.createServer(async (req, res) => {
               }
             }
             startedList.push(st);
-          } catch {
+          } catch (err) {
+            const msg = err?.message || String(err);
+            const isQuota = /Max concurrent|Daily thread spawn|quota/i.test(msg);
+            failures.push({
+              threadId: row.thread_id,
+              title: row.title,
+              code: isQuota ? "quota_exceeded" : "start_error",
+              error: msg
+            });
             break;
           }
         }
         broadcastSnapshot(ws);
-        return sendJson(res, 200, { startedCount: startedList.length, threads: startedList, headlessAuthMissing });
+        if (rows.length > 0 && startedList.length === 0 && failures.length > 0) {
+          const firstFail = failures[0];
+          const statusCode = firstFail.code === "quota_exceeded" ? 409 : 400;
+          return sendJson(res, statusCode, {
+            error: firstFail.error,
+            startedCount: 0,
+            threads: [],
+            failures,
+            headlessAuthMissing
+          });
+        }
+        return sendJson(res, 200, {
+          startedCount: startedList.length,
+          threads: startedList,
+          failures,
+          partialFailure: failures.length > 0,
+          headlessAuthMissing
+        });
       }
 
       const failOpenThreadDispatches = (tid, reason) => {
@@ -2210,6 +2296,25 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true });
     }
 
+    if (pathname === "/api/worktrees/action") {
+      const action = String(body.action || "status").trim();
+      if (!["status", "create", "cleanup"].includes(action)) {
+        return sendJson(res, 400, { error: `Invalid worktree action '${action}'.` });
+      }
+      if (!body.threadId) {
+        return sendJson(res, 400, { error: "Missing threadId." });
+      }
+      const wtRes = db.manageWorktree(ws, {
+        action,
+        threadId: String(body.threadId),
+        repoId: body.repoId || undefined,
+        baseBranch: body.baseBranch || undefined,
+        runSetup: body.runSetup !== false
+      });
+      if (action !== "status") broadcastSnapshot(ws);
+      return sendJson(res, 200, wtRes);
+    }
+
     if (pathname === "/api/routines/upsert") {
       const routine = db.upsertSchedule(ws, body);
       broadcastSnapshot(ws);
@@ -2264,13 +2369,19 @@ const server = http.createServer(async (req, res) => {
         sql.prepare("UPDATE scheduled_routines SET last_run_at = ?, last_thread_id = ? WHERE routine_id = ?")
           .run(db.nowIso(), thread.thread_id, r.routine_id);
         const relayRes = await relayToCoordinator(ws, dispatch, {
-          fallbackHeadless: () =>
-            startHeadlessWorkerOrHandleAuth(ws, {
+          fallbackHeadless: () => {
+            const wtThread =
+              db.ensureThreadWorktreeIfNeeded(ws, thread.thread_id, {
+                workspaceMode: r.workspace_mode || thread.workspace_mode,
+                cfg
+              }) || thread;
+            return startHeadlessWorkerOrHandleAuth(ws, {
               threadId: thread.thread_id,
               mode: db.isMutatingRole(normRole) ? "write" : "readonly",
-              cwd: ws,
+              cwd: wtThread.worktree_path || ws,
               prompt: r.prompt
-            })
+            });
+          }
         });
         if (relayRes.headlessAuthMissing || relayRes.started === false) {
           const errMsg = String(relayRes.error || `Dispatch failed (${relayRes.reason || "not_started"}).`).slice(0, 500);
@@ -2297,18 +2408,24 @@ const server = http.createServer(async (req, res) => {
         });
       }
 
-      const thread = db.registerThread(ws, {
+      let thread = db.registerThread(ws, {
         title: `[Routine] ${r.name}`,
         description: r.prompt,
         role: normRole,
-        workspaceMode: r.workspace_mode || "share"
+        workspaceMode: r.workspace_mode || "share",
+        executionBackend: "headless"
       });
+      thread =
+        db.ensureThreadWorktreeIfNeeded(ws, thread.thread_id, {
+          workspaceMode: r.workspace_mode || thread.workspace_mode,
+          cfg
+        }) || thread;
       sql.prepare("UPDATE scheduled_routines SET last_run_at = ?, last_thread_id = ? WHERE routine_id = ?")
         .run(db.nowIso(), thread.thread_id, r.routine_id);
       const sp = startHeadlessWorkerOrHandleAuth(ws, {
         threadId: thread.thread_id,
         mode: db.isMutatingRole(normRole) ? "write" : "readonly",
-        cwd: ws,
+        cwd: thread.worktree_path || ws,
         prompt: r.prompt
       });
       if (sp.headlessAuthMissing || sp.started === false) {

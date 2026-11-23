@@ -188,4 +188,18 @@ test("Project lifecycle, registry, workspace resolution (GAP-04), and settings/m
     assert.equal(db.loadProjectConfig(wsB).coordinatorConversationId, null);
     assert.equal(db.loadProjectConfig(wsC).coordinatorConversationId, sharedCoord);
   });
+
+  await t.test("GAP-14: defaultWorkspaceMode accepts 'worktree' and resolveSwarmWorkspace maps 'worktree' to 'inherit'", () => {
+    const wsGit = env.makeGitRepo("proj-wt-mode");
+    db.createProject({ name: "Worktree Mode", workspacePath: wsGit });
+    const upd = db.updateProjectSettings(wsGit, { defaultWorkspaceMode: "worktree" });
+    assert.equal(upd.config.orchestration.defaultWorkspaceMode, "worktree");
+    assert.equal(db.resolveSwarmWorkspace(upd.config, wsGit, "implementer", "worktree"), "inherit");
+    assert.equal(db.resolveSwarmWorkspace(upd.config, wsGit, "implementer", undefined), "inherit");
+    assert.equal(db.resolveSwarmWorkspace(upd.config, wsGit, "implementer", "share"), "share");
+    assert.throws(
+      () => db.updateProjectSettings(wsGit, { defaultWorkspaceMode: "invalid-mode" }),
+      /Invalid defaultWorkspaceMode/
+    );
+  });
 });

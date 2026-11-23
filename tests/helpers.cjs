@@ -25,6 +25,17 @@ function createTestEnv(prefix = "agy-test-") {
     return ws;
   }
 
+  function makeGitRepo(name = "repo") {
+    const repo = makeWorkspace(name);
+    spawnSync("git", ["init", "-b", "main"], { cwd: repo, encoding: "utf8" });
+    spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: repo, encoding: "utf8" });
+    spawnSync("git", ["config", "user.name", "Test User"], { cwd: repo, encoding: "utf8" });
+    fs.writeFileSync(path.join(repo, "README.md"), `# ${name}\n`, "utf8");
+    spawnSync("git", ["add", "README.md"], { cwd: repo, encoding: "utf8" });
+    spawnSync("git", ["commit", "-m", "initial"], { cwd: repo, encoding: "utf8" });
+    return repo;
+  }
+
   function childEnv(extra = {}) {
     return {
       ...process.env,
@@ -197,6 +208,7 @@ function createTestEnv(prefix = "agy-test-") {
     sharedData,
     binDir,
     makeWorkspace,
+    makeGitRepo,
     childEnv,
     applyProcessEnv,
     createFakeAgentApi,

@@ -40,13 +40,17 @@ test("MCP JSON-RPC protocol, tool schemas (GAP-01, GAP-05), and tool round-trips
       assert.ok(byName.has(reqTool), `missing tool ${reqTool}`);
     }
 
-    // GAP-05 fields in update_project_settings
+    // GAP-05 & GAP-14 fields in update_project_settings & upsert_schedule
     const upsProps = byName.get("update_project_settings").inputSchema.properties;
     assert.equal(upsProps.maxIndexChars.type, "number");
     assert.deepEqual(upsProps.executionEngine.enum, ["swarm", "headless", "subagent"]);
     assert.equal(upsProps.autoSpawnSwarmMonitor.type, "boolean");
     assert.equal(upsProps.dispatchClaimTtlSeconds.type, "number");
     assert.equal(upsProps.dispatchMatchTtlSeconds.type, "number");
+    assert.ok(upsProps.defaultWorkspaceMode.enum.includes("worktree"));
+
+    const usProps = byName.get("upsert_schedule").inputSchema.properties;
+    assert.ok(usProps.workspaceMode.enum.includes("worktree"));
 
     // GAP-05 fields in ingest_library_item
     const iliProps = byName.get("ingest_library_item").inputSchema.properties;

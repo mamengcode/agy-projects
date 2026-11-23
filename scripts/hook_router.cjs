@@ -1115,8 +1115,12 @@ function main() {
         overwrite.Model = resolvedSubModel;
       }
 
-      if (!args.Workspace && db.isMutatingRole(roleKey)) {
-        overwrite.Workspace = cfg?.orchestration?.defaultWorkspaceMode || "share";
+      const rawWs = args.Workspace ? String(args.Workspace).trim() : "";
+      if (rawWs === "worktree" || (!rawWs && db.isMutatingRole(roleKey))) {
+        const resolvedSubWs = db.resolveSwarmWorkspace(cfg, workspacePath, roleKey, rawWs || undefined);
+        if (resolvedSubWs && resolvedSubWs !== rawWs) {
+          overwrite.Workspace = resolvedSubWs;
+        }
       }
 
       return Object.keys(overwrite).length > 0

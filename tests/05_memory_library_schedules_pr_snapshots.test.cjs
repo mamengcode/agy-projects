@@ -534,4 +534,39 @@ print(json.dumps({"ok": True}))
     });
     assert.equal(JSON.parse(pyOut.trim()).ok, true);
   });
+
+  await t.test("GAP-14: pre-thread manageWorktree('create') persists metadata and auto-links on registerThread", () => {
+    const preRepoPath = env.makeGitRepo("pre-wt-repo");
+    const bound = db.bindRepository(ws, { localPath: preRepoPath, name: "pre-wt-repo" });
+    const preThreadId = "t-pre-wt-link";
+
+    // Create worktree BEFORE registerThread
+    const created = db.manageWorktree(ws, { action: "create", threadId: preThreadId, repoId: bound.repo_id });
+    assert.equal(created.created, true);
+    assert.equal(fs.existsSync(created.worktreePath), true);
+
+    const statusBefore = db.manageWorktree(ws, { action: "status", threadId: preThreadId, repoId: bound.repo_id });
+    assert.equal(statusBefore.exists, true);
+    assert.equal(statusBefore.worktrees[bound.repo_id].worktreePath, created.worktreePath);
+
+    // Register thread afterwards: must auto-link worktree_path, repo_id, branch_name, and worktrees_json
+    const registered = db.registerThread(ws, {
+      threadId: preThreadId,
+      title: "Pre-linked worktree task",
+      role: "implementer",
+      workspaceMode: "worktree"
+    });
+    assert.equal(registered.worktree_path, created.worktreePath);
+    assert.equal(registered.repo_id, bound.repo_id);
+    assert.equal(registered.branch_name, `project/${preThreadId}`);
+    const parsedMap = JSON.parse(registered.worktrees_json || "{}");
+    assert.equal(parsedMap[bound.repo_id].worktreePath, created.worktreePath);
+
+    // Cleanup removes worktree, metadata file, and DB link
+    const cleaned = db.manageWorktree(ws, { action: "cleanup", threadId: preThreadId });
+    assert.equal(cleaned.cleanedUp, true);
+    assert.equal(fs.existsSync(created.worktreePath), false);
+    const metaFile = path.join(ws, ".agy-project", "worktrees", preThreadId, ".worktrees.json");
+    assert.equal(fs.existsSync(metaFile), false);
+  });
 });

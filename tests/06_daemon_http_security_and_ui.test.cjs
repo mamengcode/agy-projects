@@ -218,4 +218,170 @@ test("Sidecar Daemon HTTP/SSE APIs, CORS/CSP/Token Security (GAP-09, GAP-04), an
     assert.equal(propOk.status, 200);
     assert.equal(propOk.json.threads.length, 1);
   });
+
+  await t.test("GAP-14 & GAP-15: worktree API, batch start HTTP errors, executionBackend, routines edit, and UI controls", async () => {
+    const wsWt = env.makeGitRepo("daemon-wt");
+    db.createProject({ name: "Daemon WT", workspacePath: wsWt });
+    const bound = db.bindRepository(wsWt, { localPath: wsWt, name: "daemon-wt" });
+    db.updateProjectSettings(wsWt, {
+      executionEngine: "subagent",
+      defaultWorkspaceMode: "worktree",
+      maxConcurrentThreads: 1
+    });
+    const auth = { "X-Sidecar-Token": daemon.token };
+
+    // 1. /api/worktrees/action create -> status -> cleanup
+    const wtCreate = await daemon.request("POST", "/api/worktrees/action", auth, {
+      workspacePath: wsWt,
+      action: "create",
+      threadId: "t-api-wt",
+      repoId: bound.repo_id
+    });
+    assert.equal(wtCreate.status, 200);
+    assert.equal(wtCreate.json.created, true);
+    assert.equal(fs.existsSync(wtCreate.json.worktreePath), true);
+
+    const wtStatus = await daemon.request("POST", "/api/worktrees/action", auth, {
+      workspacePath: wsWt,
+      action: "status",
+      threadId: "t-api-wt",
+      repoId: bound.repo_id
+    });
+    assert.equal(wtStatus.status, 200);
+    assert.equal(wtStatus.json.exists, true);
+
+    const wtCleanup = await daemon.request("POST", "/api/worktrees/action", auth, {
+      workspacePath: wsWt,
+      action: "cleanup",
+      threadId: "t-api-wt"
+    });
+    assert.equal(wtCleanup.status, 200);
+    assert.equal(wtCleanup.json.cleanedUp, true);
+    assert.equal(fs.existsSync(wtCreate.json.worktreePath), false);
+
+    // 2. Single start sets execution_backend correctly ("headless" vs "subagent")
+    const props = db.proposeThreads(wsWt, [
+      { threadId: "t-be-head", title: "Headless Task", description: "Run", role: "explorer" },
+      { threadId: "t-be-sub", title: "Subagent Task", description: "Run", role: "explorer" },
+      { threadId: "t-be-q1", title: "Quota Task 1", description: "Run", role: "explorer" }
+    ]);
+    assert.equal(props.length, 3);
+
+    const startHeadless = await daemon.request("POST", "/api/threads/action", auth, {
+      workspacePath: wsWt,
+      action: "start",
+      threadId: "t-be-head",
+      launchHeadless: true
+    });
+    assert.equal(startHeadless.status, 200);
+    assert.equal(startHeadless.json.thread.execution_backend, "headless");
+
+    // Resolve t-be-head so slot frees up; test start_selected partialFailure & 409 quota error
+    db.updateThreadState(wsWt, { threadId: "t-be-head", uiBucket: "resolved" });
+
+    const partialBatch = await daemon.request("POST", "/api/threads/action", auth, {
+      workspacePath: wsWt,
+      action: "start_selected",
+      threadIds: ["t-be-sub", "t-be-q1"],
+      executionBackend: "subagent",
+      launchHeadless: false
+    });
+    assert.equal(partialBatch.status, 200);
+    assert.equal(partialBatch.json.startedCount, 1);
+    assert.equal(partialBatch.json.threads[0].execution_backend, "subagent");
+    assert.equal(partialBatch.json.partialFailure, true);
+    assert.equal(partialBatch.json.failures.length, 1);
+    assert.equal(partialBatch.json.failures[0].code, "quota_exceeded");
+
+    // Now slot is full (1/1): start_all must fail with HTTP 409, NOT 200 { startedCount: 0 }
+    const fullQuotaBatch = await daemon.request("POST", "/api/threads/action", auth, {
+      workspacePath: wsWt,
+      action: "start_all",
+      executionBackend: "subagent",
+      launchHeadless: false
+    });
+    assert.equal(fullQuotaBatch.status, 409);
+    assert.equal(fullQuotaBatch.json.startedCount, 0);
+    assert.equal(fullQuotaBatch.json.failures[0].code, "quota_exceeded");
+
+    // 3. Routine create, edit (routineId), disable (enabled: false), and workspaceMode: "worktree"
+    const rtCreate = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsWt,
+      name: "Nightly WT",
+      cronExpr: "0 3 * * *",
+      prompt: "Check repo",
+      targetRole: "implementer",
+      workspaceMode: "worktree",
+      enabled: true
+    });
+    assert.equal(rtCreate.status, 200);
+    const rid = rtCreate.json.routine.routine_id;
+    assert.equal(rtCreate.json.routine.workspace_mode, "worktree");
+    assert.equal(rtCreate.json.routine.enabled, 1);
+
+    const rtEdit = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsWt,
+      routineId: rid,
+      name: "Nightly WT Edited",
+      cronExpr: "30 4 * * *",
+      prompt: "Check repo v2",
+      targetRole: "verifier",
+      workspaceMode: "worktree",
+      enabled: false
+    });
+    assert.equal(rtEdit.status, 200);
+    assert.equal(rtEdit.json.routine.routine_id, rid);
+    assert.equal(rtEdit.json.routine.name, "Nightly WT Edited");
+    assert.equal(rtEdit.json.routine.enabled, 0);
+
+    // 3b. POST /api/routines/run-now (headless path) sets execution_backend='headless' and auto-provisions worktree
+    db.updateProjectSettings(wsWt, { maxConcurrentThreads: 5, executionEngine: "headless" });
+    const rtRunNow = await daemon.request("POST", "/api/routines/run-now", auth, {
+      workspacePath: wsWt,
+      routineId: rid
+    });
+    assert.equal(rtRunNow.status, 200);
+    assert.equal(rtRunNow.json.thread.execution_backend, "headless");
+    assert.ok(rtRunNow.json.thread.worktree_path, "run-now should auto-provision worktree for workspaceMode='worktree'");
+    assert.equal(fs.existsSync(rtRunNow.json.thread.worktree_path), true);
+    db.manageWorktree(wsWt, { action: "cleanup", threadId: rtRunNow.json.thread.thread_id });
+
+    // 3c. Single start on workspaceMode='worktree' thread auto-provisions worktree
+    const [wtTask] = db.proposeThreads(wsWt, [
+      { threadId: "t-auto-wt-start", title: "Auto WT Start", description: "Work", role: "implementer", workspaceMode: "worktree", repoId: bound.repo_id }
+    ]);
+    const autoWtStart = await daemon.request("POST", "/api/threads/action", auth, {
+      workspacePath: wsWt,
+      action: "start",
+      threadId: wtTask.thread_id,
+      executionBackend: "subagent",
+      launchHeadless: false
+    });
+    assert.equal(autoWtStart.status, 200);
+    assert.ok(autoWtStart.json.thread.worktree_path);
+    assert.equal(fs.existsSync(autoWtStart.json.thread.worktree_path), true);
+    db.manageWorktree(wsWt, { action: "cleanup", threadId: wtTask.thread_id });
+
+    // 4. UI markup parity checks for GAP-14 & GAP-15
+    const uiHtml = fs.readFileSync(path.join(env.REPO_ROOT, "sidecars", "project_hub", "ui.html"), "utf8");
+    for (const id of [
+      'id="set-exec-engine"',
+      'id="set-max-mem-chars"',
+      'id="set-claim-ttl"',
+      'id="set-match-ttl"',
+      'id="pt-ws-mode"',
+      'id="pt-repo"',
+      'id="pt-owned-globs"',
+      'id="rt-id"',
+      'id="rt-ws-mode"',
+      'id="rt-enabled"',
+      'id="td-worktree-section"',
+      'id="btn-td-wt-status"',
+      'id="btn-td-wt-cleanup"'
+    ]) {
+      assert.ok(uiHtml.includes(id), `ui.html missing ${id}`);
+    }
+    assert.ok(uiHtml.includes('<option value="worktree">worktree</option>'));
+    assert.ok(uiHtml.includes("Unarchive"));
+  });
 });

@@ -519,6 +519,33 @@ test("Hook router guards (AT-01..AT-05, SessionStart, PreInvocation, PreToolUse,
     assert.equal(sbDisabledAllow.decision, "allow");
   });
 
+  await t.test("GAP-14: PreToolUse invoke_subagent maps defaultWorkspaceMode/args.Workspace 'worktree' to 'inherit'", () => {
+    const wsGitSub = env.makeGitRepo("hook-sub-wt");
+    const subCoord = "coord-sub-wt";
+    db.createProject({ name: "Subagent WT", workspacePath: wsGitSub, coordinatorConversationId: subCoord });
+    db.updateProjectSettings(wsGitSub, { defaultWorkspaceMode: "worktree" });
+
+    // Omitted Workspace with defaultWorkspaceMode='worktree' -> must overwrite to 'inherit', never 'worktree'
+    const omittedRes = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: subCoord,
+      workspacePaths: [wsGitSub],
+      toolCall: { name: "invoke_subagent", args: { TypeName: "project-implementer", Task: "Build feature" } }
+    });
+    assert.equal(omittedRes.decision, "allow");
+    assert.equal(omittedRes.overwrite?.Workspace, "inherit");
+
+    // Explicit Workspace='worktree' -> normalized to 'inherit'
+    const explicitRes = env.callHook({
+      hookEventName: "PreToolUse",
+      conversationId: subCoord,
+      workspacePaths: [wsGitSub],
+      toolCall: { name: "invoke_subagent", args: { TypeName: "project-implementer", Task: "Build", Workspace: "worktree" } }
+    });
+    assert.equal(explicitRes.decision, "allow");
+    assert.equal(explicitRes.overwrite?.Workspace, "inherit");
+  });
+
   await t.test("AT-05: paused project hard-stops PreInvocation/PreToolUse mutations", () => {
     db.transitionProjectLifecycle(ws, { status: "paused" });
     const pausedPre = env.callHook({

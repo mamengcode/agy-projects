@@ -754,6 +754,7 @@
                     <option value="all">All Modes</option>
                     <option value="share">share</option>
                     <option value="branch">branch</option>
+                    <option value="worktree">worktree</option>
                     <option value="inherit">inherit</option>
                   </select>
                 </div>
@@ -967,6 +968,7 @@
                   <select id="set-ws-mode" name="defaultWorkspaceMode">
                     <option value="share">share (Isolated Working Copy)</option>
                     <option value="branch">branch (Full Clone)</option>
+                    <option value="worktree">worktree (Managed Git Worktree)</option>
                     <option value="inherit">inherit (Shared CWD)</option>
                   </select>
                 </div>
@@ -1067,6 +1069,24 @@
                   <input type="number" id="set-idle-days" name="idleAutoResolveDays" min="1" max="365">
                 </div>
               </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field">
+                  <label for="set-exec-engine">Execution Engine</label>
+                  <select id="set-exec-engine" name="executionEngine">
+                    <option value="swarm">swarm (Built-in Swarm)</option>
+                    <option value="subagent">subagent (Native Chat / Subagent)</option>
+                    <option value="headless">headless (Headless Python SDK)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-claim-ttl">Dispatch Claim TTL (sec)</label>
+                  <input type="number" id="set-claim-ttl" name="dispatchClaimTtlSeconds" min="30" max="3600">
+                </div>
+                <div class="field">
+                  <label for="set-match-ttl">Dispatch Match TTL (sec)</label>
+                  <input type="number" id="set-match-ttl" name="dispatchMatchTtlSeconds" min="30" max="3600">
+                </div>
+              </div>
               <div class="checkbox-row" style="margin-top:8px;margin-bottom:0">
                 <input type="checkbox" id="set-require-approval" name="requireApprovalBeforeSpawn">
                 <label for="set-require-approval">Require Coordinator planning approval before spawning write-enabled Worker Threads</label>
@@ -1104,6 +1124,10 @@
                 <div class="field">
                   <label for="set-max-mem-lines">MEMORY.md Max Lines (&le;200)</label>
                   <input type="number" id="set-max-mem-lines" name="maxIndexLines" min="20" max="200">
+                </div>
+                <div class="field">
+                  <label for="set-max-mem-chars">MEMORY.md Max Chars (&le;16,000)</label>
+                  <input type="number" id="set-max-mem-chars" name="maxIndexChars" min="1000" max="16000">
                 </div>
                 <div class="field">
                   <label for="set-pin-threshold">Auto-Pin Token Threshold</label>
@@ -1329,6 +1353,28 @@
           </optgroup>
         </select>
       </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field">
+          <label for="pt-ws-mode">Workspace Mode</label>
+          <select id="pt-ws-mode" name="workspaceMode">
+            <option value="">Default (Project / Role Setting)</option>
+            <option value="share">share (Isolated Working Copy)</option>
+            <option value="branch">branch (Full Clone)</option>
+            <option value="worktree">worktree (Managed Git Worktree)</option>
+            <option value="inherit">inherit (Shared CWD)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pt-repo">Target Repository (optional)</label>
+          <select id="pt-repo" name="repoId">
+            <option value="">Default / Any Repo</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="pt-owned-globs">Owned File Globs (comma-separated, optional)</label>
+        <input type="text" id="pt-owned-globs" name="ownedGlobs" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="e.g. src/auth/**, tests/auth/**">
+      </div>
       <div class="field">
         <label for="pt-desc">Task Brief &amp; Acceptance Criteria <span aria-hidden="true">*</span></label>
         <textarea id="pt-desc" name="description" rows="4" required></textarea>
@@ -1367,10 +1413,11 @@
     </form>
   </dialog>
 
-  <!-- MODAL: Add Routine -->
+  <!-- MODAL: Add / Edit Routine -->
   <dialog id="dlg-routine" closedby="any" aria-labelledby="dlg-rt-title">
     <form action="#" method="post" class="dialog-body" id="form-routine" aria-labelledby="dlg-rt-title">
       <h3 id="dlg-rt-title" style="margin:0">Add Scheduled Cron Routine</h3>
+      <input type="hidden" id="rt-id" name="routineId">
       <div class="field">
         <label for="rt-name">Routine Name <span aria-hidden="true">*</span></label>
         <input type="text" id="rt-name" name="name" required autofocus placeholder="Morning Test Audit">
@@ -1379,14 +1426,29 @@
         <label for="rt-cron">5-Field Cron Expression <span aria-hidden="true">*</span></label>
         <input type="text" id="rt-cron" name="cronExpr" required autocorrect="off" autocapitalize="none" spellcheck="false" value="0 9 * * 1-5">
       </div>
-      <div class="field">
-        <label for="rt-role">Target Role</label>
-        <select id="rt-role" name="targetRole">
-          <option value="explorer">explorer (Read-Only)</option>
-          <option value="verifier">verifier (Read-Only QA)</option>
-          <option value="implementer">implementer (Write Enabled)</option>
-          <option value="pr-fixer">pr-fixer (Write CI Remediation)</option>
-        </select>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field">
+          <label for="rt-role">Target Role</label>
+          <select id="rt-role" name="targetRole">
+            <option value="explorer">explorer (Read-Only)</option>
+            <option value="verifier">verifier (Read-Only QA)</option>
+            <option value="implementer">implementer (Write Enabled)</option>
+            <option value="pr-fixer">pr-fixer (Write CI Remediation)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="rt-ws-mode">Workspace Mode</label>
+          <select id="rt-ws-mode" name="workspaceMode">
+            <option value="share">share</option>
+            <option value="branch">branch</option>
+            <option value="worktree">worktree</option>
+            <option value="inherit">inherit</option>
+          </select>
+        </div>
+      </div>
+      <div class="checkbox-row" style="margin-bottom:0">
+        <input type="checkbox" id="rt-enabled" name="enabled" checked>
+        <label for="rt-enabled">Enabled (run automatically on cron schedule)</label>
       </div>
       <div class="field">
         <label for="rt-prompt">Prompt <span aria-hidden="true">*</span></label>
@@ -1433,6 +1495,16 @@
         </div>
       </div>
       <div id="td-meta" class="muted mono"></div>
+      <section id="td-worktree-section" hidden aria-labelledby="td-wt-heading">
+        <div class="row-between" style="margin-bottom:4px">
+          <strong id="td-wt-heading" style="font-size:12px">Managed Git Worktrees</strong>
+          <div style="display:flex;gap:6px">
+            <button type="button" id="btn-td-wt-status" class="small">Inspect Status</button>
+            <button type="button" id="btn-td-wt-cleanup" class="danger small">Clean Up Worktree</button>
+          </div>
+        </div>
+        <div id="td-worktree-list" class="muted mono" style="font-size:11px;white-space:pre-wrap"></div>
+      </section>
       <pre id="td-telemetry" class="code-preview" role="region" aria-label="Thread telemetry log" tabindex="0"><code id="td-telemetry-code"></code></pre>
       <section id="td-swarm-board-section" hidden aria-labelledby="td-swarm-board-heading">
         <div class="row-between" style="margin-bottom:4px">
@@ -2156,11 +2228,15 @@
           await refreshState();
           return;
         }
+        const engine = state?.config?.orchestration?.executionEngine || "swarm";
         const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
-        if (headlessReady) {
+        const preferSubagent = engine === "subagent";
+        const preferHeadless = engine === "headless" || (!preferSubagent && headlessReady);
+        if (preferHeadless) {
           const res = await api("/api/threads/action", {
             action: "start",
             threadId: thread.thread_id,
+            executionBackend: "headless",
             launchHeadless: true
           });
           if (res.headlessAuthMissing) {
@@ -2183,6 +2259,7 @@
             action: "start",
             threadId: thread.thread_id,
             conversationId: newConvId || undefined,
+            executionBackend: "subagent",
             launchHeadless: false
           });
           if (newConvId) {
@@ -2196,7 +2273,8 @@
         const res = await api("/api/threads/action", {
           action: "start",
           threadId: thread.thread_id,
-          launchHeadless: true
+          executionBackend: preferSubagent ? "subagent" : "headless",
+          launchHeadless: !preferSubagent
         });
         if (res.headlessAuthMissing) {
           showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
@@ -2234,30 +2312,38 @@
             throw err;
           }
           selectedSuggestedIds.clear();
+          const failNote =
+            res?.partialFailure && Array.isArray(res.failures) && res.failures.length > 0
+              ? ` (${res.failures.length} failed: ${res.failures[0].error})`
+              : "";
           if (res?.headlessAuthMissing) {
             showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
           } else if (res?.dispatchedVia === "swarm") {
             const cnt = res.dispatchCount ?? res.startedCount ?? 0;
             showToast(
-              mode === "selected"
+              (mode === "selected"
                 ? `Dispatched ${cnt} selected task(s) to Swarm Coordinator`
-                : `Dispatched ${cnt} task(s) to Swarm Coordinator`
+                : `Dispatched ${cnt} task(s) to Swarm Coordinator`) + failNote,
+              Boolean(failNote)
             );
           } else {
             showToast(
-              mode === "selected"
+              (mode === "selected"
                 ? `Started ${res.startedCount} selected task(s)`
-                : `Started ${res.startedCount} task(s)`
+                : `Started ${res.startedCount} task(s)`) + failNote,
+              Boolean(failNote)
             );
           }
           await refreshState();
           return;
         }
+        const engine = state?.config?.orchestration?.executionEngine || "swarm";
         const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
         const hasNativeChat = Boolean(
           window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function"
         );
-        if (!headlessReady && hasNativeChat) {
+        const useNativeSubagent = engine === "subagent" || (engine !== "headless" && !headlessReady && hasNativeChat);
+        if (useNativeSubagent && hasNativeChat) {
           const allThreads = Array.isArray(state.threads) ? state.threads : [];
           const idSet = new Set((threadIds || []).map(String));
           const targets = allThreads.filter(
@@ -2279,19 +2365,34 @@
           return;
         }
 
+        const useHeadless = engine !== "subagent";
         const payload =
           mode === "selected"
-            ? { action: "start_selected", threadIds: Array.from(threadIds || []), launchHeadless: true }
-            : { action: "start_all", launchHeadless: true };
+            ? {
+                action: "start_selected",
+                threadIds: Array.from(threadIds || []),
+                executionBackend: useHeadless ? "headless" : "subagent",
+                launchHeadless: useHeadless
+              }
+            : {
+                action: "start_all",
+                executionBackend: useHeadless ? "headless" : "subagent",
+                launchHeadless: useHeadless
+              };
         const res = await api("/api/threads/action", payload);
         selectedSuggestedIds.clear();
+        const failNote =
+          res?.partialFailure && Array.isArray(res.failures) && res.failures.length > 0
+            ? ` (${res.failures.length} failed: ${res.failures[0].error})`
+            : "";
         if (res.headlessAuthMissing) {
           showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
         } else {
           showToast(
-            mode === "selected"
+            (mode === "selected"
               ? `Started ${res.startedCount} selected task(s)`
-              : `Started ${res.startedCount} task(s)`
+              : `Started ${res.startedCount} task(s)`) + failNote,
+            Boolean(failNote)
           );
         }
         await refreshState();
@@ -2550,6 +2651,26 @@
         ];
         document.getElementById("td-meta").textContent = metaLines.join("\n");
 
+        const wtSection = document.getElementById("td-worktree-section");
+        const wtListEl = document.getElementById("td-worktree-list");
+        if (wtSection && wtListEl) {
+          const wtEntries =
+            thread.worktrees && typeof thread.worktrees === "object"
+              ? Object.values(thread.worktrees).filter((e) => e && e.worktreePath)
+              : [];
+          const hasRepos = Array.isArray(state.repositories) && state.repositories.length > 0;
+          const showWt = Boolean(thread.worktree_path || wtEntries.length > 0 || (hasRepos && thread.workspace_mode === "worktree"));
+          wtSection.hidden = !showWt;
+          if (showWt) {
+            const lines = wtEntries.length
+              ? wtEntries.map((e) => `${e.repoName || e.repoId}: ${e.worktreePath} (${e.branchName || ""})`)
+              : thread.worktree_path
+                ? [thread.worktree_path]
+                : ["No worktree materialized yet (click Inspect Status to check)."];
+            wtListEl.textContent = lines.join("\n");
+          }
+        }
+
         let telemetry = [];
         try {
           telemetry = Array.isArray(thread.live_telemetry)
@@ -2804,7 +2925,8 @@
 
           if (btnPause) {
             btnPause.disabled = false;
-            btnPause.textContent = cfg.status === "active" ? "Pause" : "Resume";
+            btnPause.textContent =
+              cfg.status === "archived" ? "↺ Unarchive" : cfg.status === "active" ? "Pause" : "Resume";
           }
           if (btnStar) {
             btnStar.disabled = false;
@@ -4075,6 +4197,9 @@
         setIfIdle("set-max-daily", cfg.orchestration?.maxNewThreadsPerDay ?? 200);
         setIfIdle("set-idle-days", cfg.orchestration?.idleAutoResolveDays ?? 7);
         setIfIdle("set-ws-mode", cfg.orchestration?.defaultWorkspaceMode || "share");
+        setIfIdle("set-exec-engine", cfg.orchestration?.executionEngine || "swarm");
+        setIfIdle("set-claim-ttl", cfg.orchestration?.dispatchClaimTtlSeconds ?? 600);
+        setIfIdle("set-match-ttl", cfg.orchestration?.dispatchMatchTtlSeconds ?? 300);
         document.getElementById("set-require-approval").checked = cfg.orchestration?.requireApprovalBeforeSpawn !== false;
         const autoMonEl = document.getElementById("set-auto-swarm-monitor");
         if (autoMonEl) autoMonEl.checked = cfg.orchestration?.autoSpawnSwarmMonitor === true;
@@ -4102,6 +4227,7 @@
         document.getElementById("inst-counter").textContent = `${(cfg.instructions || "").length.toLocaleString()} / 16,000`;
         document.getElementById("set-acct-mem").checked = Boolean(cfg.memory?.useAccountMemory);
         setIfIdle("set-max-mem-lines", cfg.memory?.maxIndexLines ?? 200);
+        setIfIdle("set-max-mem-chars", cfg.memory?.maxIndexChars ?? 16000);
         setIfIdle("set-pin-threshold", cfg.memory?.autoPinLibraryTokenThreshold ?? 15000);
         setIfIdle("set-emb-provider", cfg.memory?.embeddingProvider);
         setIfIdle("set-cloud-model", cfg.memory?.cloudEmbeddingModel);
@@ -4136,6 +4262,12 @@
           const s = document.createElement("strong");
           s.textContent = `${r.name} (${r.cron_expr})`;
           titleRow.appendChild(s);
+          if (!r.enabled) {
+            const disBadge = document.createElement("span");
+            disBadge.className = "badge";
+            disBadge.textContent = "Disabled";
+            titleRow.appendChild(disBadge);
+          }
           if (r.last_error) {
             const errBadge = document.createElement("span");
             errBadge.className = "badge err";
@@ -4144,7 +4276,7 @@
           }
           const m = document.createElement("div");
           m.className = "muted mono";
-          m.textContent = `Role: ${r.target_role} • Next: ${r.next_run_at || "disabled"}`;
+          m.textContent = `Role: ${r.target_role} • Mode: ${r.workspace_mode || "share"} • Next: ${r.enabled ? (r.next_run_at || "scheduled") : "disabled"}`;
           txt.append(titleRow, m);
           if (r.last_error) {
             const errLine = document.createElement("div");
@@ -4156,7 +4288,7 @@
           }
 
           const btns = document.createElement("div");
-          btns.style.cssText = "display:flex;gap:6px";
+          btns.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
           const bRun = document.createElement("button");
           bRun.type = "button";
           bRun.className = "small";
@@ -4168,6 +4300,40 @@
               await refreshState();
             } catch (e) { showToast(e.message, true); }
           });
+          const bToggle = document.createElement("button");
+          bToggle.type = "button";
+          bToggle.className = "small";
+          bToggle.textContent = r.enabled ? "Disable" : "Enable";
+          bToggle.addEventListener("click", async () => {
+            try {
+              await api("/api/routines/upsert", {
+                routineId: r.routine_id,
+                name: r.name,
+                cronExpr: r.cron_expr,
+                targetRole: r.target_role,
+                workspaceMode: r.workspace_mode || "share",
+                prompt: r.prompt,
+                enabled: !r.enabled
+              });
+              showToast(r.enabled ? `Disabled ${r.name}` : `Enabled ${r.name}`);
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          const bEdit = document.createElement("button");
+          bEdit.type = "button";
+          bEdit.className = "small";
+          bEdit.textContent = "Edit";
+          bEdit.addEventListener("click", () => {
+            document.getElementById("dlg-rt-title").textContent = "Edit Scheduled Cron Routine";
+            document.getElementById("rt-id").value = r.routine_id;
+            document.getElementById("rt-name").value = r.name || "";
+            document.getElementById("rt-cron").value = r.cron_expr || "0 9 * * 1-5";
+            document.getElementById("rt-role").value = r.target_role || "explorer";
+            document.getElementById("rt-ws-mode").value = r.workspace_mode || "share";
+            document.getElementById("rt-enabled").checked = Boolean(r.enabled);
+            document.getElementById("rt-prompt").value = r.prompt || "";
+            openDialog("dlg-routine");
+          });
           const bDel = document.createElement("button");
           bDel.type = "button";
           bDel.className = "danger small";
@@ -4178,7 +4344,7 @@
               await refreshState();
             } catch (e) { showToast(e.message, true); }
           });
-          btns.append(bRun, bDel);
+          btns.append(bRun, bToggle, bEdit, bDel);
           div.append(txt, btns);
           rList.appendChild(div);
         }
@@ -4329,6 +4495,7 @@
       onId("ov-goal-input", "blur", () => syncGoalSaveVisibility());
 
       onId("btn-ov-new-task", "click", () => {
+        populateProposeRepoSelect();
         openDialog("dlg-propose-thread");
       });
 
@@ -4350,16 +4517,52 @@
       });
 
       async function toggleProjectPauseResume() {
-        if (!state.config || state.config.status === "archived") return;
+        if (!state.config) return;
+        const wasArchived = state.config.status === "archived";
         const next = state.config.status === "active" ? "paused" : "active";
         try {
           await api("/api/projects/lifecycle", { status: next });
-          showToast(`Project ${next}`);
+          showToast(wasArchived ? "Project unarchived" : `Project ${next}`);
           await refreshState();
         } catch (err) { showToast(err.message, true); }
       }
       onId("btn-pause-resume", "click", toggleProjectPauseResume);
       onId("btn-set-pause-resume", "click", toggleProjectPauseResume);
+
+      onId("btn-td-wt-status", "click", async () => {
+        const tid = document.getElementById("steer-thread-id")?.value;
+        if (!tid) return;
+        try {
+          const res = await api("/api/worktrees/action", { action: "status", threadId: tid });
+          const wtListEl = document.getElementById("td-worktree-list");
+          if (wtListEl) {
+            const entries =
+              res.worktrees && typeof res.worktrees === "object"
+                ? Object.values(res.worktrees).filter((e) => e && e.worktreePath)
+                : [];
+            if (entries.length > 0) {
+              wtListEl.textContent = entries
+                .map((e) => `${e.repoName || e.repoId}: ${e.worktreePath} (${e.branchName || ""})`)
+                .join("\n");
+            } else {
+              wtListEl.textContent = `${res.exists ? "Active" : "Missing"}: ${res.worktreePath} (${res.branchName || ""})`;
+            }
+          }
+          showToast(res.exists ? "Worktree exists on disk" : "Worktree not materialized on disk");
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-td-wt-cleanup", "click", async () => {
+        const tid = document.getElementById("steer-thread-id")?.value;
+        if (!tid) return;
+        try {
+          await api("/api/worktrees/action", { action: "cleanup", threadId: tid });
+          showToast("Worktree cleaned up");
+          await refreshState();
+          const updated = (state.threads || []).find((x) => x.thread_id === tid);
+          if (updated) openThreadDetail(updated);
+        } catch (err) { showToast(err.message, true); }
+      });
 
       onId("btn-archive-project", "click", async () => {
         if (!state.config) return;
@@ -4522,11 +4725,30 @@
         } catch (err) { showToast(err.message, true); }
       });
 
+      function populateProposeRepoSelect() {
+        const sel = document.getElementById("pt-repo");
+        if (!sel) return;
+        const prev = sel.value;
+        sel.replaceChildren();
+        const defOpt = document.createElement("option");
+        defOpt.value = "";
+        defOpt.textContent = "Default / Any Repo";
+        sel.appendChild(defOpt);
+        for (const r of state.repositories || []) {
+          const opt = document.createElement("option");
+          opt.value = r.repo_id;
+          opt.textContent = `${r.name} (${r.default_branch || "main"})`;
+          sel.appendChild(opt);
+        }
+        sel.value = Array.from(sel.options).some((o) => o.value === prev) ? prev : "";
+      }
+
       onId("btn-propose-thread", "click", () => {
+        populateProposeRepoSelect();
         openDialog("dlg-propose-thread");
       });
 
-      function buildNewTaskProposalPayload({ title, role, description, selectedModel }) {
+      function buildNewTaskProposalPayload({ title, role, description, selectedModel, workspaceMode, repoId, ownedGlobsText }) {
         const ntModel = String(selectedModel || "inherit").trim() || "inherit";
         const isLegacyAlias = ntModel === "pro" || ntModel === "flash" || ntModel === "flash_lite";
         const payload = {
@@ -4534,6 +4756,13 @@
           role,
           description: String(description || "").trim()
         };
+        if (workspaceMode) payload.workspaceMode = String(workspaceMode).trim();
+        if (repoId) payload.repoId = String(repoId).trim();
+        const globs = String(ownedGlobsText || "")
+          .split(/[,\n]+/)
+          .map((g) => g.trim())
+          .filter(Boolean);
+        if (globs.length > 0) payload.ownedGlobs = globs;
         if (ntModel !== "inherit") {
           if (isLegacyAlias) {
             payload.model = ntModel;
@@ -4547,11 +4776,17 @@
 
       registerFormHandler("form-propose-thread", async () => {
         const ntModelEl = document.getElementById("nt-model");
+        const wsModeEl = document.getElementById("pt-ws-mode");
+        const repoEl = document.getElementById("pt-repo");
+        const globsEl = document.getElementById("pt-owned-globs");
         const proposal = buildNewTaskProposalPayload({
           title: document.getElementById("pt-title").value,
           role: document.getElementById("pt-role").value,
           description: document.getElementById("pt-desc").value,
-          selectedModel: ntModelEl ? ntModelEl.value : "inherit"
+          selectedModel: ntModelEl ? ntModelEl.value : "inherit",
+          workspaceMode: wsModeEl ? wsModeEl.value : "",
+          repoId: repoEl ? repoEl.value : "",
+          ownedGlobsText: globsEl ? globsEl.value : ""
         });
         await api("/api/threads/propose", {
           proposals: [proposal]
@@ -4559,6 +4794,9 @@
         document.getElementById("pt-title").value = "";
         document.getElementById("pt-desc").value = "";
         if (ntModelEl) ntModelEl.value = "inherit";
+        if (wsModeEl) wsModeEl.value = "";
+        if (repoEl) repoEl.value = "";
+        if (globsEl) globsEl.value = "";
         closeDialog("dlg-propose-thread");
         showToast("Thread added to Suggested");
         await refreshState();
@@ -4921,12 +5159,16 @@
             maxNewThreadsPerDay: Number(document.getElementById("set-max-daily").value) || 200,
             idleAutoResolveDays: Number(document.getElementById("set-idle-days").value) || 7,
             defaultWorkspaceMode: document.getElementById("set-ws-mode").value,
+            executionEngine: document.getElementById("set-exec-engine")?.value || "swarm",
+            dispatchClaimTtlSeconds: Number(document.getElementById("set-claim-ttl")?.value) || 600,
+            dispatchMatchTtlSeconds: Number(document.getElementById("set-match-ttl")?.value) || 300,
             requireApprovalBeforeSpawn: document.getElementById("set-require-approval").checked,
             autoSpawnSwarmMonitor: Boolean(document.getElementById("set-auto-swarm-monitor")?.checked)
           },
           memory: {
             useAccountMemory: document.getElementById("set-acct-mem").checked,
             maxIndexLines: Number(document.getElementById("set-max-mem-lines").value) || 200,
+            maxIndexChars: Number(document.getElementById("set-max-mem-chars")?.value) || 16000,
             autoPinLibraryTokenThreshold: Number(document.getElementById("set-pin-threshold").value) || 15000,
             embeddingProvider: document.getElementById("set-emb-provider").value,
             cloudEmbeddingModel: document.getElementById("set-cloud-model").value,
@@ -4992,16 +5234,29 @@
       });
 
       onId("btn-new-routine", "click", () => {
+        document.getElementById("dlg-rt-title").textContent = "Add Scheduled Cron Routine";
+        document.getElementById("rt-id").value = "";
+        document.getElementById("rt-name").value = "";
+        document.getElementById("rt-cron").value = "0 9 * * 1-5";
+        document.getElementById("rt-role").value = "explorer";
+        document.getElementById("rt-ws-mode").value = "share";
+        document.getElementById("rt-enabled").checked = true;
+        document.getElementById("rt-prompt").value = "";
         openDialog("dlg-routine");
       });
 
       registerFormHandler("form-routine", async () => {
+        const rid = document.getElementById("rt-id")?.value?.trim() || "";
         await api("/api/routines/upsert", {
+          ...(rid ? { routineId: rid } : {}),
           name: document.getElementById("rt-name").value.trim(),
           cronExpr: document.getElementById("rt-cron").value.trim(),
           targetRole: document.getElementById("rt-role").value,
+          workspaceMode: document.getElementById("rt-ws-mode")?.value || "share",
+          enabled: document.getElementById("rt-enabled") ? document.getElementById("rt-enabled").checked : true,
           prompt: document.getElementById("rt-prompt").value.trim()
         });
+        document.getElementById("rt-id").value = "";
         closeDialog("dlg-routine");
         showToast("Routine saved");
         await refreshState();

@@ -162,7 +162,7 @@ const TOOLS = [
         maxNewThreadsPerDay: { type: "number" },
         idleAutoResolveDays: { type: "number" },
         requireApprovalBeforeSpawn: { type: "boolean" },
-        defaultWorkspaceMode: { type: "string", enum: ["share", "branch", "inherit"] },
+        defaultWorkspaceMode: { type: "string", enum: ["share", "branch", "worktree", "inherit"] },
         executionEngine: { type: "string", enum: ["swarm", "headless", "subagent"] },
         autoSpawnSwarmMonitor: { type: "boolean" },
         dispatchClaimTtlSeconds: { type: "number" },
@@ -411,7 +411,7 @@ const TOOLS = [
         cronExpr: { type: "string", description: "Standard 5-field cron expression, e.g. '0 9 * * 1-5'." },
         prompt: { type: "string" },
         targetRole: { type: "string", enum: ["explorer", "implementer", "verifier", "pr-fixer", "pr_fixer"] },
-        workspaceMode: { type: "string", enum: ["inherit", "share", "branch"] },
+        workspaceMode: { type: "string", enum: ["inherit", "share", "branch", "worktree"] },
         enabled: { type: "boolean" }
       },
       required: ["name", "cronExpr", "prompt"]

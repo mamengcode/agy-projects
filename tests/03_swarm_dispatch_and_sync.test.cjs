@@ -213,4 +213,43 @@ test("Swarm dispatch lifecycle, nonce verification, untrusted context, and swarm
     assert.equal(threadRow.active_dispatch_id, null);
     assert.equal(threadRow.blocking_is_error, 0);
   });
+
+  await t.test("GAP-14: claimHubDispatch auto-provisions worktree and includes Worktree path in Swarm brief", () => {
+    const wsWt = env.makeGitRepo("swarm-wt-brief");
+    db.createProject({ name: "Swarm WT", workspacePath: wsWt, coordinatorConversationId: "coord-wt" });
+    const bound = db.bindRepository(wsWt, { localPath: wsWt, name: "swarm-wt-brief" });
+    const [proposed] = db.proposeThreads(wsWt, [
+      {
+        threadId: "t-wt-brief",
+        title: "Implement feature in worktree",
+        description: "Edit files inside the thread worktree",
+        role: "implementer",
+        workspaceMode: "worktree",
+        repoId: bound.repo_id
+      }
+    ]);
+    const disp = db.createHubDispatch(wsWt, {
+      threadId: proposed.thread_id,
+      action: "start",
+      payload: {
+        role: "implementer",
+        title: proposed.title,
+        prompt: proposed.description,
+        workspaceMode: "worktree"
+      },
+      baselineHeadSeq: 0,
+      reservedSlots: 1
+    });
+
+    const claimed = db.claimHubDispatch(wsWt, disp.dispatchId, disp.nonce);
+    assert.equal(claimed.action, "start");
+    assert.equal(claimed.addArgs.workspace, "inherit");
+    const refreshed = db.openProjectDb(wsWt).prepare("SELECT * FROM threads WHERE thread_id = ?").get(proposed.thread_id);
+    assert.ok(refreshed.worktree_path, "worktree_path should be auto-provisioned");
+    assert.equal(fs.existsSync(refreshed.worktree_path), true);
+    assert.ok(claimed.addArgs.brief.includes(`Worktree: ${refreshed.worktree_path}`), "brief should include Worktree path");
+
+    // Clean up git worktree cleanly
+    db.manageWorktree(wsWt, { action: "cleanup", threadId: proposed.thread_id });
+  });
 });
