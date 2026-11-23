@@ -141,6 +141,7 @@ const TOOLS = [
         instructions: { type: "string" },
         useAccountMemory: { type: "boolean" },
         maxIndexLines: { type: "number" },
+        maxIndexChars: { type: "number" },
         autoPinLibraryTokenThreshold: { type: "number" },
         embeddingProvider: { type: "string", enum: ["local_onnx", "gemini_cloud"] },
         cloudEmbeddingModel: { type: "string", enum: ["gemini-embedding-2", "gemini-embedding-001"] },
@@ -154,6 +155,10 @@ const TOOLS = [
         idleAutoResolveDays: { type: "number" },
         requireApprovalBeforeSpawn: { type: "boolean" },
         defaultWorkspaceMode: { type: "string", enum: ["share", "branch", "inherit"] },
+        executionEngine: { type: "string", enum: ["swarm", "headless", "subagent"] },
+        autoSpawnSwarmMonitor: { type: "boolean" },
+        dispatchClaimTtlSeconds: { type: "number" },
+        dispatchMatchTtlSeconds: { type: "number" },
         environment: { type: "object" },
         sharing: { type: "object" }
       }
@@ -316,9 +321,20 @@ const TOOLS = [
         content: { type: "string", description: "Inline UTF-8 content if creating directly." },
         filename: { type: "string", description: "Target filename when passing inline content." },
         category: { type: "string", enum: ["input", "output"] },
-        sourceType: { type: "string", enum: ["upload", "local_file", "gdrive", "gdoc", "gsheet", "thread_artifact", "git_doc"] },
+        sourceType: {
+          type: "string",
+          enum: ["upload", "local_file", "gdrive", "gdoc", "gsheet", "thread_artifact", "coordinator_artifact", "git_doc"]
+        },
         title: { type: "string" },
-        producerThreadId: { type: "string" }
+        producerThreadId: { type: "string" },
+        allowLargeLocal: {
+          type: "boolean",
+          description: "Allow larger file size caps (up to 200 MB local file / 45 MB inline payload) instead of the 30 MB default limit."
+        },
+        syncEmbeddings: {
+          type: "boolean",
+          description: "Wait synchronously for embedding generation after ingestion (default false)."
+        }
       },
       required: ["category"]
     }
