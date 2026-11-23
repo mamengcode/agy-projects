@@ -3897,6 +3897,9 @@ function getActiveEmbeddingModelName(cfg) {
 }
 
 function triggerPythonRagEmbed(workspacePath, { asyncMode = true } = {}) {
+  if (asyncMode && process.env.AGY_DISABLE_ASYNC_RAG_EMBED === "1") {
+    return { triggered: false, skipped: true };
+  }
   const scriptPath = path.join(getPluginRootDir(), "server", "rag_worker.py");
   if (!fs.existsSync(scriptPath)) return { triggered: false };
   const pyBin = getVenvPythonOrSystem();
