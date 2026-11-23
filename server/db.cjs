@@ -886,6 +886,35 @@ function saveProjectConfig(workspacePath, cfg) {
 }
 
 const VALID_ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const BLOCKED_CHILD_ENV_KEYS = new Set([
+  "LD_PRELOAD",
+  "LD_LIBRARY_PATH",
+  "DYLD_INSERT_LIBRARIES",
+  "DYLD_LIBRARY_PATH",
+  "DYLD_FRAMEWORK_PATH",
+  "NODE_OPTIONS",
+  "PYTHONSTARTUP"
+]);
+
+function buildProjectChildEnv(workspacePath, extraEnv = {}) {
+  const cfg = workspacePath && hasProjectInitialized(workspacePath) ? loadProjectConfig(workspacePath) : null;
+  const rawVars = cfg?.environment?.envVars;
+  const safeProjectVars = {};
+  if (rawVars && typeof rawVars === "object" && !Array.isArray(rawVars)) {
+    for (const [k, v] of Object.entries(rawVars)) {
+      if (!VALID_ENV_VAR_NAME_RE.test(k)) continue;
+      if (BLOCKED_CHILD_ENV_KEYS.has(k.toUpperCase())) continue;
+      safeProjectVars[k] = String(v ?? "");
+    }
+  }
+  return {
+    ...process.env,
+    ...safeProjectVars,
+    ANTIGRAVITY_APP_DATA_DIR: getAppDataDir(),
+    AGY_PROJECTS_DATA_DIR: getSharedDataDir(),
+    ...(extraEnv && typeof extraEnv === "object" ? extraEnv : {})
+  };
+}
 
 function parseFiniteNumber(val, fieldName) {
   if (typeof val === "number") {
@@ -3786,7 +3815,7 @@ function getExtractedTextPath(workspacePath, itemId) {
   return path.join(getProjectDir(workspacePath), "state", "extracted", `${itemId}.txt`);
 }
 
-function extractDocumentSync(absFilePath, mimeType) {
+function extractDocumentSync(absFilePath, mimeType, workspacePath = null) {
   const scriptPath = path.join(getPluginRootDir(), "server", "rag_worker.py");
   if (!fs.existsSync(scriptPath)) {
     return null;
@@ -3796,7 +3825,7 @@ function extractDocumentSync(absFilePath, mimeType) {
     pyBin,
     [scriptPath, "extract-doc", "--file", path.resolve(absFilePath), "--mime", String(mimeType || "")],
     {
-      env: { ...process.env, AGY_PROJECTS_DATA_DIR: getSharedDataDir() },
+      env: buildProjectChildEnv(workspacePath),
       encoding: "utf8",
       timeout: 30000
     }
@@ -3826,7 +3855,7 @@ function readLibraryItemText(workspacePath, item) {
     return `[Image Asset: ${item.title}]`;
   }
   if (isStructuredBinaryMime(item.mime_type, absFile)) {
-    const extRes = extractDocumentSync(absFile, item.mime_type);
+    const extRes = extractDocumentSync(absFile, item.mime_type, workspacePath);
     if (extRes?.ok && typeof extRes.text === "string") {
       writeTextAtomic(extractedPath, extRes.text);
       return extRes.text;
@@ -3932,10 +3961,7 @@ function triggerPythonRagEmbed(workspacePath, { asyncMode = true } = {}) {
   const scriptPath = path.join(getPluginRootDir(), "server", "rag_worker.py");
   if (!fs.existsSync(scriptPath)) return { triggered: false };
   const pyBin = getVenvPythonOrSystem();
-  const env = {
-    ...process.env,
-    AGY_PROJECTS_DATA_DIR: getSharedDataDir()
-  };
+  const env = buildProjectChildEnv(workspacePath);
   if (asyncMode) {
     const child = spawn(pyBin, [scriptPath, "embed-workspace", "--workspace", path.resolve(workspacePath)], {
       env,
@@ -4107,7 +4133,7 @@ function ingestLibraryItem(workspacePath, { sourcePath, content, filename, categ
   let extractedText = null;
 
   if (isStructuredBinaryMime(mimeType, destAbs)) {
-    const extRes = extractDocumentSync(destAbs, mimeType);
+    const extRes = extractDocumentSync(destAbs, mimeType, workspacePath);
     if (extRes && extRes.ok === false) {
       try {
         if (!sourcePath || path.resolve(sourcePath) !== destAbs) fs.unlinkSync(destAbs);
@@ -4237,7 +4263,7 @@ function tryEmbedQuerySync(workspacePath, queryText) {
       getVenvPythonOrSystem(),
       [scriptPath, "embed-query", "--workspace", path.resolve(workspacePath), "--query", String(queryText)],
       {
-        env: { ...process.env, AGY_PROJECTS_DATA_DIR: getSharedDataDir() },
+        env: buildProjectChildEnv(workspacePath),
         encoding: "utf8",
         timeout: 8000
       }
@@ -6124,6 +6150,7 @@ module.exports = {
   getAccountMemoryPath,
   loadProjectConfig,
   saveProjectConfig,
+  buildProjectChildEnv,
   updateProjectSettings,
   validateInstructions,
   openProjectDb,

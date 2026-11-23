@@ -789,12 +789,9 @@ function spawnHeadlessSdkWorker(workspacePath, { threadId, mode = "readonly", cw
   const thread = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(threadId);
   const cfg = db.loadProjectConfig(absWs);
   const envCfg = cfg?.environment || {};
-  const mergedEnv = {
-    ...process.env,
-    ...(envCfg.envVars && typeof envCfg.envVars === "object" ? envCfg.envVars : {}),
-    AGY_PROJECTS_DATA_DIR: db.getSharedDataDir(),
+  const mergedEnv = db.buildProjectChildEnv(absWs, {
     AGY_HEADLESS_SDK_WORKER: "1"
-  };
+  });
 
   if (!hasHeadlessSdkAuth(mergedEnv)) {
     return {

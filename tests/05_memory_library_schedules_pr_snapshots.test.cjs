@@ -380,4 +380,123 @@ test("Memory curation, Library ingestion & search, Schedules, PRs, and Privacy-S
     const revoked = db.revokeChatSnapshot(ws, snap.snapshotId);
     assert.equal(revoked.revoked, true);
   });
+
+  await t.test("GAP-07 & GAP-08: envVars/ANTIGRAVITY_APP_DATA_DIR propagation and READONLY_MCP_TOOLS", () => {
+    db.updateProjectSettings(ws, {
+      environment: {
+        envVars: {
+          GEMINI_API_KEY: "test-proj-gemini-key",
+          CUSTOM_RAG_FLAG: "enabled",
+          LD_PRELOAD: "/evil.so",
+          NODE_OPTIONS: "--require /evil.js"
+        }
+      }
+    });
+
+    // Node db.buildProjectChildEnv
+    const childEnv = db.buildProjectChildEnv(ws);
+    assert.equal(childEnv.GEMINI_API_KEY, "test-proj-gemini-key");
+    assert.equal(childEnv.CUSTOM_RAG_FLAG, "enabled");
+    assert.equal(childEnv.ANTIGRAVITY_APP_DATA_DIR, path.resolve(env.appData));
+    assert.equal(childEnv.AGY_PROJECTS_DATA_DIR, path.resolve(env.sharedData));
+    assert.notEqual(childEnv.LD_PRELOAD, "/evil.so");
+    assert.notEqual(childEnv.NODE_OPTIONS, "--require /evil.js");
+
+    // Python rag_worker.py: verify READONLY_MCP_TOOLS, build_mcp_server_env, live mcp_server ping, and build_local_agent_config
+    const pyCheck = `
+import importlib.util, json, os, subprocess, sys, types
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("rag_worker", ${JSON.stringify(path.join(env.REPO_ROOT, "server", "rag_worker.py"))})
+rw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rw)
+
+assert "upsert_memory" in rw.READONLY_MCP_TOOLS, rw.READONLY_MCP_TOOLS
+assert "get_dispatch_context" in rw.READONLY_MCP_TOOLS, rw.READONLY_MCP_TOOLS
+
+mcp_env = rw.build_mcp_server_env(Path(${JSON.stringify(ws)}))
+assert mcp_env["GEMINI_API_KEY"] == "test-proj-gemini-key", mcp_env
+assert mcp_env["CUSTOM_RAG_FLAG"] == "enabled", mcp_env
+assert mcp_env["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve()), mcp_env
+assert mcp_env["AGY_PROJECTS_DATA_DIR"] == str(Path(${JSON.stringify(env.sharedData)}).resolve()), mcp_env
+assert "PATH" in mcp_env and mcp_env["PATH"], mcp_env
+if os.environ.get("HOME"):
+    assert mcp_env.get("HOME") == os.environ["HOME"], mcp_env
+assert "LD_PRELOAD" not in mcp_env and "NODE_OPTIONS" not in mcp_env, mcp_env
+
+# Verify live subprocess spawn of node mcp_server.cjs with env=mcp_env succeeds
+mcp_server_path = str(Path(${JSON.stringify(path.join(env.REPO_ROOT, "server", "mcp_server.cjs"))}).resolve())
+ping_res = subprocess.run(
+    ["node", mcp_server_path],
+    input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\\n",
+    text=True,
+    capture_output=True,
+    env=mcp_env,
+    timeout=10,
+)
+assert ping_res.returncode == 0, ping_res.stderr
+ping_out = json.loads(ping_res.stdout.strip())
+assert ping_out["id"] == 1 and ping_out["result"] == {}, ping_out
+
+# Mock google.antigravity to inspect build_local_agent_config in both readonly and write modes
+ga = types.ModuleType("google.antigravity")
+ga_hooks = types.ModuleType("google.antigravity.hooks")
+ga_types = types.ModuleType("google.antigravity.types")
+
+class EnumVal:
+    def __init__(self, v): self.value = v
+
+class BuiltinTools:
+    LIST_DIR = EnumVal("list_dir")
+    SEARCH_DIR = EnumVal("search_dir")
+    FIND_FILE = EnumVal("find_file")
+    VIEW_FILE = EnumVal("view_file")
+    FINISH = EnumVal("finish")
+
+class CapabilitiesConfig:
+    def __init__(self, **kw): self.kw = kw
+
+class LocalAgentConfig:
+    def __init__(self, **kw): self.kw = kw
+
+class McpStdioServer:
+    def __init__(self, **kw): self.kw = kw
+
+class PolicyNS:
+    def workspace_only(self, ws): return [("workspace_only", ws)]
+    def deny(self, srv, tools): return [("deny", tools)]
+    def allow_all(self): return ("allow_all",)
+    def deny_all(self): return ("deny_all",)
+    def allow(self, *a): return [("allow", a)] if len(a) == 2 else ("allow", a[0])
+
+ga.BuiltinTools = BuiltinTools
+ga.CapabilitiesConfig = CapabilitiesConfig
+ga.LocalAgentConfig = LocalAgentConfig
+ga_hooks.policy = PolicyNS()
+ga_types.McpStdioServer = McpStdioServer
+sys.modules["google"] = types.ModuleType("google")
+sys.modules["google.antigravity"] = ga
+sys.modules["google.antigravity.hooks"] = ga_hooks
+sys.modules["google.antigravity.types"] = ga_types
+
+ro_cfg = rw.build_local_agent_config("readonly", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+ro_srv = ro_cfg.kw["mcp_servers"][0].kw
+assert ro_srv["env"]["GEMINI_API_KEY"] == "test-proj-gemini-key"
+assert ro_srv["env"]["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve())
+assert "upsert_memory" in ro_srv["enabled_tools"]
+assert "get_dispatch_context" in ro_srv["enabled_tools"]
+
+wr_cfg = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+wr_srv = wr_cfg.kw["mcp_servers"][0].kw
+assert wr_srv["env"]["GEMINI_API_KEY"] == "test-proj-gemini-key"
+assert wr_srv["env"]["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve())
+
+print(json.dumps({"ok": True}))
+`;
+    const pyOut = execFileSync("python3", ["-c", pyCheck], {
+      env: env.childEnv(),
+      encoding: "utf8"
+    });
+    assert.equal(JSON.parse(pyOut.trim()).ok, true);
+  });
 });

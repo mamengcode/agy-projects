@@ -669,7 +669,62 @@ READONLY_MCP_TOOLS = [
     "get_project_overview",
     "list_projects",
     "update_thread_state",
+    "upsert_memory",
+    "get_dispatch_context",
 ]
+
+BLOCKED_CHILD_ENV_KEYS = {
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "DYLD_FRAMEWORK_PATH",
+    "NODE_OPTIONS",
+    "PYTHONSTARTUP",
+    "AGY_PROJECTS_DATA_DIR",
+    "ANTIGRAVITY_APP_DATA_DIR",
+}
+
+
+def load_project_env_vars(workspace: Path | None) -> dict[str, str]:
+    if workspace is None:
+        return {}
+    cfg_path = Path(workspace).resolve() / ".agy-project" / "config.json"
+    if not cfg_path.exists():
+        return {}
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        raw_vars = (cfg.get("environment") or {}).get("envVars") or {}
+        if not isinstance(raw_vars, dict):
+            return {}
+        out: dict[str, str] = {}
+        for k, v in raw_vars.items():
+            ks = str(k or "").strip()
+            if not ks or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", ks):
+                continue
+            if ks.upper() in BLOCKED_CHILD_ENV_KEYS:
+                continue
+            out[ks] = "" if v is None else str(v)
+        return out
+    except Exception:
+        return {}
+
+
+def build_mcp_server_env(workspace: Path | None = None) -> dict[str, str]:
+    env: dict[str, str] = {
+        k: str(v)
+        for k, v in os.environ.items()
+        if k.upper() not in BLOCKED_CHILD_ENV_KEYS
+    }
+    env.update(load_project_env_vars(workspace))
+    app_data = os.environ.get("ANTIGRAVITY_APP_DATA_DIR", "").strip()
+    if app_data:
+        env["ANTIGRAVITY_APP_DATA_DIR"] = str(Path(app_data).expanduser().resolve())
+    env["AGY_PROJECTS_DATA_DIR"] = str(get_data_dir())
+    disable_embed = os.environ.get("AGY_DISABLE_ASYNC_RAG_EMBED", "").strip()
+    if disable_embed:
+        env["AGY_DISABLE_ASYNC_RAG_EMBED"] = disable_embed
+    return env
 
 WRITE_ADMIN_DISABLED_MCP_TOOLS = [
     "create_project",
@@ -682,13 +737,20 @@ WRITE_ADMIN_DISABLED_MCP_TOOLS = [
 ]
 
 
-def build_local_agent_config(mode: str, cwd: Path, system_instructions: str, model_tier: str = ""):
+def build_local_agent_config(
+    mode: str,
+    cwd: Path,
+    system_instructions: str,
+    model_tier: str = "",
+    workspace: Path | None = None,
+):
     from google.antigravity import BuiltinTools, CapabilitiesConfig, LocalAgentConfig
     from google.antigravity.hooks import policy
     from google.antigravity.types import McpStdioServer
 
     resolved_cwd = str(Path(cwd).resolve())
     mcp_server_path = str(Path(__file__).resolve().parent / "mcp_server.cjs")
+    mcp_env = build_mcp_server_env(workspace if workspace is not None else cwd)
     kwargs: dict = {
         "system_instructions": system_instructions,
         "workspaces": [resolved_cwd],
@@ -720,7 +782,7 @@ def build_local_agent_config(mode: str, cwd: Path, system_instructions: str, mod
             name="agy_projects_mcp",
             command="node",
             args=[mcp_server_path],
-            env={"AGY_PROJECTS_DATA_DIR": str(get_data_dir())},
+            env=mcp_env,
             disabled_tools=list(WRITE_ADMIN_DISABLED_MCP_TOOLS),
         )
         kwargs["mcp_servers"] = [mcp_server]
@@ -735,7 +797,7 @@ def build_local_agent_config(mode: str, cwd: Path, system_instructions: str, mod
             name="agy_projects_mcp",
             command="node",
             args=[mcp_server_path],
-            env={"AGY_PROJECTS_DATA_DIR": str(get_data_dir())},
+            env=mcp_env,
             enabled_tools=list(READONLY_MCP_TOOLS),
         )
         kwargs["mcp_servers"] = [mcp_server]
@@ -767,7 +829,11 @@ async def _run_sdk_agent_async(
     system_instructions: str,
     prompt: str,
     model_tier: str = "",
+    workspace: Path | None = None,
 ) -> int:
+    proj_ws = workspace if workspace is not None else cwd
+    for k, v in load_project_env_vars(proj_ws).items():
+        os.environ[k] = v
     if not has_headless_sdk_auth():
         print(
             json.dumps(
@@ -792,6 +858,7 @@ async def _run_sdk_agent_async(
             cwd=cwd,
             system_instructions=system_instructions,
             model_tier=model_tier,
+            workspace=proj_ws,
         )
     except ImportError as exc:
         print(
@@ -927,6 +994,7 @@ def main() -> int:
                 system_instructions=sys_inst,
                 prompt=args.prompt,
                 model_tier=args.model,
+                workspace=Path(args.workspace).resolve(),
             )
         )
 
