@@ -8,13 +8,52 @@ const path = require("node:path");
 let db = null;
 let currentEvent = "";
 
+const STRICT_UUID_CONV_RE =
+  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-zA-Z0-9_-]{8,64})$/i;
+const SYSTEM_ROLE_NAME_RE = /^(?:coordinator|narrator|monitor)(?:-\d+)?$/i;
+
+function getAppDataDirFast() {
+  if (process.env.ANTIGRAVITY_APP_DATA_DIR?.trim()) {
+    return path.resolve(process.env.ANTIGRAVITY_APP_DATA_DIR.trim());
+  }
+  return path.join(os.homedir(), ".gemini", "antigravity");
+}
+
 function getSharedDataDirFast() {
   const custom = process.env.AGY_PROJECTS_DATA_DIR?.trim();
   if (custom) return path.resolve(custom);
-  const appDir = process.env.ANTIGRAVITY_APP_DATA_DIR?.trim()
-    ? path.resolve(process.env.ANTIGRAVITY_APP_DATA_DIR.trim())
-    : path.join(os.homedir(), ".gemini", "antigravity");
-  return path.join(appDir, "plugin_data", "agy-projects");
+  return path.join(getAppDataDirFast(), "plugin_data", "agy-projects");
+}
+
+function readJsonFastSafe(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSwarmWorkerInMembersFast(appDataDir, coordId, cid) {
+  if (!coordId || typeof coordId !== "string" || !STRICT_UUID_CONV_RE.test(coordId)) return false;
+  const brainRoot = path.resolve(appDataDir, "brain");
+  const swarmDir = path.join(brainRoot, coordId, ".system_generated", "swarm");
+  const rel = path.relative(brainRoot, swarmDir);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+  const swarmJson = readJsonFastSafe(path.join(swarmDir, "swarm.json"));
+  if (swarmJson && typeof swarmJson.backend === "string" && swarmJson.backend !== "local") return false;
+  const roster = readJsonFastSafe(path.join(swarmDir, "members.json"));
+  const members =
+    roster?.members && typeof roster.members === "object" && !Array.isArray(roster.members) ? roster.members : null;
+  if (!members) return false;
+  for (const [name, m] of Object.entries(members)) {
+    if (!m || typeof m !== "object") continue;
+    if (m.role !== "worker") continue;
+    if (SYSTEM_ROLE_NAME_RE.test(String(name || ""))) continue;
+    if (m.conversation_id === cid) return true;
+  }
+  return false;
 }
 
 function isFastUnbound(conversationId) {
@@ -31,7 +70,14 @@ function isFastUnbound(conversationId) {
   if (!cid) return true;
   if (reg.projects.some((p) => p && p.coordinatorConversationId === cid)) return false;
   if (reg.boundConversations && typeof reg.boundConversations === "object" && !Array.isArray(reg.boundConversations)) {
-    return !Object.prototype.hasOwnProperty.call(reg.boundConversations, cid);
+    if (Object.prototype.hasOwnProperty.call(reg.boundConversations, cid)) return false;
+    const appDataDir = getAppDataDirFast();
+    for (const p of reg.projects) {
+      if (p && p.status !== "archived" && p.coordinatorConversationId && isSwarmWorkerInMembersFast(appDataDir, p.coordinatorConversationId, cid)) {
+        return false;
+      }
+    }
+    return true;
   }
   return false;
 }
@@ -658,6 +704,123 @@ function getMemoryHash(workspacePath) {
   return db.sha256Hex(fs.readFileSync(indexPath));
 }
 
+function normalizeSwarmToolName(name) {
+  const raw = String(name || "").trim();
+  if (raw === "manage_swarm" || raw === "swarm") return "swarm";
+  return raw;
+}
+
+function escapeRegExp(str) {
+  return String(str || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function inferRoleFromSwarmArgs(name, brief) {
+  const n = String(name || "").toLowerCase();
+  if (/^(?:expl-|explorer\b|research|investigat)/.test(n)) return "explorer";
+  if (/^(?:ver-|verifier\b|review|test|audit|qa\b)/.test(n)) return "verifier";
+  if (/^(?:pr-|pr-fixer\b|pr_fixer\b)/.test(n)) return "pr-fixer";
+  if (/^(?:impl-|implementer\b|builder|author)/.test(n)) return "implementer";
+  const b = String(brief || "").toLowerCase();
+  if (/\brole:\s*(?:project-)?explorer\b/.test(b)) return "explorer";
+  if (/\brole:\s*(?:project-)?verifier\b/.test(b)) return "verifier";
+  if (/\brole:\s*(?:project-)?pr[-_]?fixer\b/.test(b)) return "pr-fixer";
+  if (/\brole:\s*(?:project-)?implementer\b/.test(b)) return "implementer";
+  return "implementer";
+}
+
+function readSwarmMembersMap(appDataDir, coordId) {
+  const swarmDir = coordId ? db.getSwarmDir(appDataDir, coordId) : null;
+  if (!swarmDir) return { swarmDir: null, members: {} };
+  const roster = readJsonFastSafe(path.join(swarmDir, "members.json"));
+  const members =
+    roster?.members && typeof roster.members === "object" && !Array.isArray(roster.members) ? roster.members : {};
+  return { swarmDir, members };
+}
+
+function transcriptEndedWithSwarmWait(appDataDir, convId) {
+  if (!convId) return false;
+  const trPath = db.getTranscriptPath(appDataDir, String(convId));
+  if (!trPath || !fs.existsSync(trPath)) return false;
+  try {
+    const raw = fs.readFileSync(trPath, "utf8");
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+    const results = [];
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let step;
+      try {
+        step = JSON.parse(lines[i]);
+      } catch {
+        return false;
+      }
+      if (!step || typeof step !== "object") return false;
+      if (step.type === "GENERIC") {
+        results.unshift(step);
+        continue;
+      }
+      if (step.type !== "PLANNER_RESPONSE") return false;
+      const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
+      const waitIdx = calls.findIndex((c) => c?.name === "swarm_wait");
+      return waitIdx >= 0 && results.length >= calls.length && results[waitIdx]?.status === "DONE";
+    }
+  } catch {}
+  return false;
+}
+
+function hasSwarmTurnBoardCompletion(appDataDir, coordId, memberName, freshThread, conversationId) {
+  const swarmDir = coordId ? db.getSwarmDir(appDataDir, coordId) : null;
+  if (!swarmDir || !memberName) return false;
+  const boardTail = db.readBoardTailSync(path.join(swarmDir, "board.jsonl"));
+  const msgs = Array.isArray(boardTail.msgs) ? boardTail.msgs : [];
+
+  let lastAssignedSeq = Number(freshThread?.swarm_handled_seq || 0);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const bm = msgs[i];
+    if (!bm || bm.control) continue;
+    const seq = Number(bm.seq) || 0;
+    if (bm.agent !== memberName) {
+      const txt = String(bm.text || "");
+      if (db.hasExactMention(txt, memberName) || db.hasExactMention(txt, "all")) {
+        if (seq > lastAssignedSeq) lastAssignedSeq = seq;
+        break;
+      }
+    }
+  }
+
+  const endedWithWait = transcriptEndedWithSwarmWait(appDataDir, freshThread?.conversation_id || conversationId);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const bm = msgs[i];
+    if (!bm || bm.control) continue;
+    const seq = Number(bm.seq) || 0;
+    if (seq <= lastAssignedSeq) break;
+    if (bm.agent !== memberName) continue;
+    const txt = String(bm.text || "").trim();
+    if (!txt) continue;
+    if (db.DONE_LINE_RE.test(txt)) return true;
+    const mentionsCoord = db.hasExactMention(txt, "coordinator");
+    if (mentionsCoord && (db.BLOCKED_LINE_RE.test(txt) || Boolean(db.replyQuestion(txt)))) return true;
+    if (endedWithWait) return true;
+  }
+  return false;
+}
+
+function tryAutoBindSwarmWorker(conversationId, workspacePaths) {
+  const reg = db.loadRegistry();
+  if (!reg || !Array.isArray(reg.projects)) return null;
+  const appDataDir = db.getAppDataDir();
+  for (const p of reg.projects) {
+    if (!p || p.status === "archived" || !p.coordinatorConversationId || !p.workspacePath) continue;
+    const absWs = path.resolve(p.workspacePath);
+    if (!db.hasProjectInitialized(absWs)) continue;
+    const cfg = db.loadProjectConfig(absWs);
+    const coordId = cfg?.coordinatorConversationId || p.coordinatorConversationId;
+    if (!coordId || !isSwarmWorkerInMembersFast(appDataDir, coordId, conversationId)) continue;
+    db.syncSwarmIntoProjectDb(absWs, { appDataDir });
+    const bound = db.resolveSessionBinding(conversationId, workspacePaths);
+    if (bound && bound.bound) return bound;
+  }
+  return null;
+}
+
 function main() {
   const input = readStdinJson();
   const event = input.hookEventName || "";
@@ -678,7 +841,11 @@ function main() {
   }
 
   db = require("../server/db.cjs");
-  const binding = db.resolveSessionBinding(conversationId, workspacePaths);
+  let binding = db.resolveSessionBinding(conversationId, workspacePaths);
+  if (!binding.bound) {
+    const autoBound = tryAutoBindSwarmWorker(conversationId, workspacePaths);
+    if (autoBound) binding = autoBound;
+  }
 
   if (!binding.bound) {
     if (event === "PreToolUse" || event === "Stop") return sendJson({ decision: "allow" });
@@ -816,7 +983,115 @@ function main() {
   if (event === "PreToolUse") {
     const toolCall = input.toolCall || {};
     const toolName = String(toolCall.name || "");
+    const normTool = normalizeSwarmToolName(toolName);
     const args = toolCall.args || {};
+
+    if (normTool === "swarm") {
+      const action = String(args.action || "").trim().toLowerCase();
+      if (action !== "add") {
+        return sendJson({ decision: "allow" });
+      }
+      const argSwarmRole =
+        args.role !== undefined && args.role !== null && String(args.role).trim() !== ""
+          ? String(args.role).trim().toLowerCase()
+          : "worker";
+      if (argSwarmRole !== "worker") {
+        return sendJson({ decision: "allow" });
+      }
+      const targetName = String(args.name || "").trim();
+      if (targetName && SYSTEM_ROLE_NAME_RE.test(targetName)) {
+        return sendJson({ decision: "allow" });
+      }
+
+      const k =
+        Array.isArray(args.tasks) && args.tasks.length > 0
+          ? args.tasks.length
+          : (Number.isFinite(Number(args.n)) && Number(args.n) >= 1 ? Math.floor(Number(args.n)) : 1);
+      const parsedMarker = db.parseDispatchMarker(args.brief || "");
+      const credit = parsedMarker
+        ? db.getDispatchReservationCredit(workspacePath, parsedMarker.dispatchId, parsedMarker.threadId)
+        : 0;
+      const additionalNeeded = Math.max(0, k - credit);
+
+      try {
+        db.checkThreadQuota(workspacePath, {
+          additionalCount: additionalNeeded,
+          skipCounts: additionalNeeded === 0
+        });
+      } catch (err) {
+        return sendJson({ decision: "deny", reason: err.message });
+      }
+
+      if (credit > 0 && parsedMarker) {
+        db.consumeDispatchPreTool(workspacePath, parsedMarker.dispatchId, parsedMarker.threadId);
+      }
+
+      const targetThread = parsedMarker
+        ? sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(parsedMarker.threadId)
+        : null;
+      const targetDispatch = parsedMarker?.dispatchId
+        ? sql.prepare("SELECT action, payload_json FROM hub_dispatches WHERE dispatch_id = ?").get(parsedMarker.dispatchId)
+        : null;
+      let dispatchPayloadRole = null;
+      if (targetDispatch) {
+        try {
+          const dp = JSON.parse(targetDispatch.payload_json || "{}");
+          if (dp?.role) dispatchPayloadRole = db.normalizeRole(dp.role);
+        } catch {}
+        if (!dispatchPayloadRole && targetDispatch.action === "pr_autofix") {
+          dispatchPayloadRole = "pr-fixer";
+        }
+      }
+      const roleKey = dispatchPayloadRole
+        ? dispatchPayloadRole
+        : targetThread?.role
+          ? db.normalizeRole(targetThread.role)
+          : inferRoleFromSwarmArgs(targetName, args.brief);
+
+      const overwrite = {};
+      const isWorkerAdHocHelper = role === "worker" && !parsedMarker;
+      if (isWorkerAdHocHelper) {
+        if (args.model === "inherit") {
+          overwrite.model = "";
+        } else if (args.model) {
+          const resolvedHelperModel = db.resolveSwarmModel(args.model);
+          if (resolvedHelperModel && resolvedHelperModel !== args.model) {
+            overwrite.model = resolvedHelperModel;
+          }
+        }
+      } else {
+        const useTargetThreadModel = !targetThread?.role || db.normalizeRole(targetThread.role) === roleKey;
+        const rawModelSetting = db.resolveConfiguredThreadModel(
+          cfg,
+          roleKey,
+          args.model,
+          useTargetThreadModel ? targetThread?.swarm_model : null,
+          useTargetThreadModel ? targetThread?.model : null
+        );
+        const resolvedSwarmModel = db.resolveSwarmModel(rawModelSetting);
+        if ((!args.model || args.model === "inherit") && resolvedSwarmModel) {
+          overwrite.model = resolvedSwarmModel;
+        } else if (args.model === "inherit" && !resolvedSwarmModel) {
+          overwrite.model = "";
+        } else if (args.model && args.model !== "inherit" && resolvedSwarmModel && resolvedSwarmModel !== args.model) {
+          overwrite.model = resolvedSwarmModel;
+        }
+      }
+
+      const threadWsHint =
+        targetThread?.workspace_mode && (db.isMutatingRole(roleKey) || targetThread.workspace_mode === "branch")
+          ? targetThread.workspace_mode
+          : "";
+      const effectiveExplicitWs = args.workspace || threadWsHint;
+      const resolvedWorkspace = db.resolveSwarmWorkspace(cfg, workspacePath, roleKey, effectiveExplicitWs);
+      if (!args.workspace || args.workspace !== resolvedWorkspace) {
+        overwrite.workspace = resolvedWorkspace;
+      }
+
+      return Object.keys(overwrite).length > 0
+        ? sendJson({ decision: "allow", overwrite })
+        : sendJson({ decision: "allow" });
+    }
 
     if (toolName === "invoke_subagent") {
       try {
@@ -828,17 +1103,24 @@ function main() {
       const overwrite = {};
       const typeName = String(args.TypeName || "");
       const roleKey = db.normalizeRole(typeName.replace(/^project-/, ""));
-      const roleModel = db.getRoleModelOverride(cfg, roleKey) || db.getRoleModelOverride(cfg, typeName);
-      const fallbackModel = cfg?.models?.defaultThreadModel;
+      const resolvedSubModel = db.resolveSubagentModel(
+        { role: roleKey, model: args.Model },
+        cfg
+      );
+      const validSubagentTiers = new Set(["inherit", "flash", "flash_lite", "pro"]);
 
-      if ((!args.Model || args.Model === "inherit") && roleModel && roleModel !== "inherit") {
-        overwrite.Model = roleModel;
-      } else if (!args.Model && fallbackModel && fallbackModel !== "inherit") {
-        overwrite.Model = fallbackModel;
+      if ((!args.Model || args.Model === "inherit") && resolvedSubModel && resolvedSubModel !== "inherit") {
+        overwrite.Model = resolvedSubModel;
+      } else if (args.Model && !validSubagentTiers.has(String(args.Model))) {
+        overwrite.Model = resolvedSubModel;
       }
 
-      if (!args.Workspace && db.isMutatingRole(roleKey)) {
-        overwrite.Workspace = cfg?.orchestration?.defaultWorkspaceMode || "share";
+      const rawWs = args.Workspace ? String(args.Workspace).trim() : "";
+      if (rawWs === "worktree" || (!rawWs && db.isMutatingRole(roleKey))) {
+        const resolvedSubWs = db.resolveSwarmWorkspace(cfg, workspacePath, roleKey, rawWs || undefined);
+        if (resolvedSubWs && resolvedSubWs !== rawWs) {
+          overwrite.Workspace = resolvedSubWs;
+        }
       }
 
       return Object.keys(overwrite).length > 0
@@ -846,10 +1128,67 @@ function main() {
         : sendJson({ decision: "allow" });
     }
 
+    if (toolName === "search_web" || toolName === "read_url_content") {
+      const netPol = cfg?.environment?.networkPolicy || "inherit";
+      if (netPol === "deny") {
+        return sendJson({
+          decision: "deny",
+          reason: "Project Network Policy Guard: Outbound web access is denied by project environment.networkPolicy='deny'."
+        });
+      }
+      if (netPol === "ask") {
+        return sendJson({
+          decision: "ask",
+          reason: "Project Network Policy Guard: Confirm outbound web access (environment.networkPolicy='ask')."
+        });
+      }
+    }
+
+    const getAllowedSandboxRoots = () => {
+      const roots = [workspacePath];
+      if (thread?.worktree_path) roots.push(thread.worktree_path);
+      if (thread?.thread_id) {
+        const safeSlug = String(thread.thread_id).replace(/[^a-zA-Z0-9_-]/g, "-");
+        roots.push(path.join(db.getProjectDir(workspacePath), "worktrees", safeSlug));
+      }
+      if (thread?.worktrees_json) {
+        try {
+          const parsedWt = JSON.parse(thread.worktrees_json);
+          if (parsedWt && typeof parsedWt === "object") {
+            for (const entry of Object.values(parsedWt)) {
+              const p = typeof entry === "string" ? entry : entry?.worktreePath;
+              if (p) roots.push(p);
+            }
+          }
+        } catch {}
+      }
+      if (
+        role === "worker" &&
+        (thread?.workspace_mode === "share" || thread?.workspace_mode === "branch") &&
+        Array.isArray(input.workspacePaths)
+      ) {
+        for (const wp of input.workspacePaths) {
+          if (wp) roots.push(wp);
+        }
+      }
+      if (input.artifactDirectoryPath) roots.push(input.artifactDirectoryPath);
+      if (db.STRICT_UUID_CONV_RE && db.STRICT_UUID_CONV_RE.test(conversationId)) {
+        roots.push(path.join(db.getAppDataDir(), "brain", conversationId));
+      }
+      try {
+        const repoRows = sql.prepare("SELECT local_path FROM repositories").all();
+        for (const r of repoRows) {
+          if (r?.local_path) roots.push(r.local_path);
+        }
+      } catch {}
+      return roots.filter(Boolean);
+    };
+
     if (toolName === "run_command") {
       const cmd = String(args.CommandLine || args.command || "");
       const invocations = extractCommandInvocations(cmd);
-      if (cfg?.environment?.networkPolicy === "deny" && invocations.some(isNetworkCommand)) {
+      const netPol = cfg?.environment?.networkPolicy || "inherit";
+      if (netPol === "deny" && invocations.some(isNetworkCommand)) {
         return sendJson({
           decision: "deny",
           reason: "Project Network Policy Guard: Outbound network commands are denied by project environment.networkPolicy='deny'."
@@ -858,13 +1197,32 @@ function main() {
       if (role === "coordinator" && invocations.some(isTestRunnerCommand)) {
         return sendJson({
           decision: "deny",
-          reason: "Coordinator Separation Guard: Delegate lengthy test suite execution to a project-verifier Worker Thread via invoke_subagent."
+          reason:
+            'Coordinator Separation Guard: Delegate lengthy test suite execution to a project-verifier Worker Thread via swarm{action:"add", ...}.'
         });
       }
       if (role === "worker" && thread && !db.isMutatingRole(thread.role) && invocations.some(isReadOnlyGitMutationCommand)) {
         return sendJson({
           decision: "deny",
           reason: "Read-Only Role Guard: explorer/verifier threads cannot mutate git branches or history."
+        });
+      }
+      if (cfg?.environment?.sandboxMode === "enabled") {
+        const cmdCwd = String(args.Cwd || args.cwd || input.cwd || "").trim();
+        if (cmdCwd) {
+          const sandboxRoots = getAllowedSandboxRoots();
+          if (!sandboxRoots.some((root) => isInsideDir(cmdCwd, root))) {
+            return sendJson({
+              decision: "deny",
+              reason: `Project Sandbox Guard: Command Cwd '${cmdCwd}' outside the project workspace/worktree is blocked by environment.sandboxMode='enabled'.`
+            });
+          }
+        }
+      }
+      if (netPol === "ask" && invocations.some(isNetworkCommand)) {
+        return sendJson({
+          decision: "ask",
+          reason: "Project Network Policy Guard: Confirm outbound network command (environment.networkPolicy='ask')."
         });
       }
     }
@@ -875,14 +1233,30 @@ function main() {
         const projectDir = db.getProjectDir(workspacePath);
         const inProjectMeta = isInsideDir(targetPath, projectDir);
         const inArtifacts = input.artifactDirectoryPath && isInsideDir(targetPath, input.artifactDirectoryPath);
+        const convBrainDir =
+          db.STRICT_UUID_CONV_RE && db.STRICT_UUID_CONV_RE.test(conversationId)
+            ? path.join(db.getAppDataDir(), "brain", conversationId)
+            : "";
+        const inCoordBrain = Boolean(convBrainDir && isInsideDir(targetPath, convBrainDir));
 
         // Coordinator separation of concerns: delegate application source code mutations to isolated Worker Threads
-        if (role === "coordinator" && !inProjectMeta && !inArtifacts) {
+        if (role === "coordinator" && !inProjectMeta && !inArtifacts && !inCoordBrain) {
           return sendJson({
             decision: "deny",
             reason:
-              "Coordinator Separation Guard: Coordinator sessions manage specs, memory, and orchestration, and must delegate application source edits to an isolated Worker Thread via invoke_subagent."
+              'Coordinator Separation Guard: Coordinator sessions manage specs, memory, and orchestration, and must delegate application source edits to an isolated Worker Thread via swarm{action:"add", ...}.'
           });
+        }
+
+        // Project Sandbox Mode: restrict file edits/writes strictly to project workspace, worktrees, bound repos, and artifacts
+        if (cfg?.environment?.sandboxMode === "enabled") {
+          const sandboxRoots = getAllowedSandboxRoots();
+          if (!sandboxRoots.some((root) => isInsideDir(targetPath, root))) {
+            return sendJson({
+              decision: "deny",
+              reason: `Project Sandbox Guard: File write to '${targetPath}' outside the project workspace/worktree is blocked by environment.sandboxMode='enabled'.`
+            });
+          }
         }
 
         // Shared-workspace Worker Thread glob ownership check
@@ -905,6 +1279,7 @@ function main() {
   if (event === "PostToolUse") {
     const toolCall = input.toolCall || {};
     const toolName = String(toolCall.name || "");
+    const normTool = normalizeSwarmToolName(toolName);
     const args = toolCall.args || {};
 
     if (role === "worker" && thread) {
@@ -927,9 +1302,523 @@ function main() {
       }
     }
 
-    // Auto-ingest deliverables written by either Coordinator or Worker Threads (excluding scratch scripts)
-    if (!input.error && toolName === "write_file") {
-      const writtenPath = args.Path || "";
+    // Coordinator Swarm PostToolUse handlers (bind workers, sync dispatches, model/kill/steer matching)
+    if (role === "coordinator") {
+      const appDataDir = db.getAppDataDir();
+      const coordId = cfg?.coordinatorConversationId || conversationId;
+
+      if (normTool === "swarm") {
+        const action = String(args.action || "").trim().toLowerCase();
+        if (action === "add") {
+          const parsedBrief = db.parseDispatchMarker(args.brief || "");
+          if (input.error) {
+            if (parsedBrief) {
+              try { db.resetDispatchPreTool(workspacePath, parsedBrief.dispatchId); } catch {}
+            }
+          } else {
+            const argSwarmRole =
+              args.role !== undefined && args.role !== null && String(args.role).trim() !== ""
+                ? String(args.role).trim().toLowerCase()
+                : "worker";
+            const baseName = String(args.name || "").trim();
+            if (argSwarmRole === "worker" && !(baseName && SYSTEM_ROLE_NAME_RE.test(baseName))) {
+              const { swarmDir, members } = readSwarmMembersMap(appDataDir, coordId);
+              const boardTail = swarmDir
+                ? db.readBoardTailSync(path.join(swarmDir, "board.jsonl"))
+                : { msgs: [], head: 0 };
+
+              const tasksCount = Array.isArray(args.tasks) && args.tasks.length > 0 ? args.tasks.length : 0;
+              const nCount = Number.isFinite(Number(args.n)) && Number(args.n) >= 1 ? Math.floor(Number(args.n)) : 0;
+              const isMultiSpawn = tasksCount > 0 || nCount > 1;
+              const multiCount = tasksCount > 0 ? tasksCount : nCount;
+
+              const isEligibleWorker = ([mName, mObj]) =>
+                Boolean(
+                  mObj &&
+                    typeof mObj === "object" &&
+                    mObj.role === "worker" &&
+                    !SYSTEM_ROLE_NAME_RE.test(mName)
+                );
+
+              let matchedMembers = [];
+              if (baseName) {
+                const baseLower = baseName.toLowerCase();
+                if (isMultiSpawn) {
+                  const expectedNames = new Set();
+                  for (let idx = 1; idx <= multiCount; idx++) {
+                    expectedNames.add(`${baseLower}-${idx}`);
+                  }
+                  matchedMembers = Object.entries(members)
+                    .filter((entry) => isEligibleWorker(entry) && expectedNames.has(entry[0].toLowerCase()))
+                    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+                } else {
+                  // Single-worker add: strictly match exact baseName so older/newer siblings (e.g. impl-auth vs impl-auth-2) are never hijacked
+                  matchedMembers = Object.entries(members).filter(
+                    (entry) => isEligibleWorker(entry) && entry[0].toLowerCase() === baseLower
+                  );
+                  if (matchedMembers.length === 0) {
+                    // Fallback only when exact baseName is absent: pick the single newest suffixed brief matching this add
+                    const suffixRe = new RegExp(`^\\s*@(${escapeRegExp(baseName)}-\\d+)(?=\\s|$)`, "i");
+                    for (let i = boardTail.msgs.length - 1; i >= 0; i--) {
+                      const bm = boardTail.msgs[i];
+                      if (!bm || bm.agent !== "coordinator" || bm.kind !== "brief") continue;
+                      const mHit = String(bm.text || "").match(suffixRe);
+                      if (!mHit) continue;
+                      if (parsedBrief?.dispatchId) {
+                        const mParsed = db.parseDispatchMarker(bm.text);
+                        if (!mParsed || mParsed.dispatchId !== parsedBrief.dispatchId) continue;
+                      }
+                      const candLower = mHit[1].toLowerCase();
+                      const found = Object.entries(members).find(
+                        (entry) => isEligibleWorker(entry) && entry[0].toLowerCase() === candLower
+                      );
+                      if (found) {
+                        matchedMembers = [found];
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+
+              let primaryBriefMarkerConsumed = false;
+              const ts = db.nowIso();
+
+              if (matchedMembers.length > 0) {
+                for (const [mName, mObj] of matchedMembers) {
+                  let marker = null;
+                  let briefSeq = 0;
+                  const startMentionRe = new RegExp(`^\\s*@${escapeRegExp(mName)}(?=\\s|$)`, "i");
+                  for (let i = boardTail.msgs.length - 1; i >= 0; i--) {
+                    const bm = boardTail.msgs[i];
+                    if (
+                      bm &&
+                      bm.agent === "coordinator" &&
+                      bm.kind === "brief" &&
+                      startMentionRe.test(String(bm.text || ""))
+                    ) {
+                      briefSeq = Number(bm.seq) || 0;
+                      const mParsed = db.parseDispatchMarker(bm.text);
+                      if (mParsed) {
+                        marker = mParsed;
+                      }
+                      break;
+                    }
+                  }
+                  if (!marker && parsedBrief && !primaryBriefMarkerConsumed) {
+                    marker = parsedBrief;
+                    primaryBriefMarkerConsumed = true;
+                  }
+
+                  const boundThreadId = db.runImmediateTx(sql, () => {
+                    let targetRow = null;
+                    if (marker?.threadId) {
+                      const byMarker = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(marker.threadId);
+                      if (
+                        byMarker &&
+                        (!byMarker.conversation_id || !mObj.conversation_id || byMarker.conversation_id === mObj.conversation_id)
+                      ) {
+                        targetRow = byMarker;
+                      }
+                    }
+                    if (!targetRow && coordId) {
+                      const bySwarm = sql
+                        .prepare("SELECT * FROM threads WHERE swarm_origin_coordinator_id = ? AND swarm_member_name = ?")
+                        .get(coordId, mName);
+                      if (
+                        bySwarm &&
+                        (!bySwarm.conversation_id || !mObj.conversation_id || bySwarm.conversation_id === mObj.conversation_id)
+                      ) {
+                        targetRow = bySwarm;
+                      }
+                    }
+                    if (!targetRow && mObj.conversation_id) {
+                      targetRow = sql.prepare("SELECT * FROM threads WHERE conversation_id = ?").get(mObj.conversation_id) || null;
+                    }
+                    if (!targetRow) {
+                      const adHocId = `swarm-${db.sha256Hex(`${coordId}:${mName}`).slice(0, 8)}`;
+                      const inferredRole = inferRoleFromSwarmArgs(mName, args.brief);
+                      sql.prepare(`
+                        INSERT INTO threads (
+                          thread_id, title, description, role, ui_bucket, server_status,
+                          model, swarm_model, workspace_mode, swarm_member_name, swarm_state,
+                          swarm_origin_coordinator_id, execution_backend, working_since, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 'working', 'working', 'inherit', ?, ?, ?, 'working', ?, 'swarm', ?, ?, ?)
+                        ON CONFLICT(thread_id) DO NOTHING
+                      `).run(
+                        adHocId,
+                        `Swarm: ${mName}`,
+                        String(args.brief || "").slice(0, 500),
+                        inferredRole,
+                        mObj.model || (args.model && args.model !== "inherit" ? args.model : null),
+                        args.workspace || "inherit",
+                        mName,
+                        coordId || null,
+                        ts,
+                        ts,
+                        ts
+                      );
+                      targetRow = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(adHocId);
+                    }
+                    if (!targetRow) return null;
+
+                    let safeConvId = targetRow.conversation_id || null;
+                    if (!safeConvId && mObj.conversation_id) {
+                      const convOwner = sql
+                        .prepare("SELECT thread_id FROM threads WHERE conversation_id = ?")
+                        .get(mObj.conversation_id);
+                      if (!convOwner || convOwner.thread_id === targetRow.thread_id) {
+                        safeConvId = mObj.conversation_id;
+                      } else if (/^swarm-[a-f0-9]{8}$/i.test(String(convOwner.thread_id || ""))) {
+                        // Transient ad-hoc swarm-* row was auto-bound ahead of Hub dispatch matching; re-home cleanly
+                        sql.prepare("DELETE FROM threads WHERE thread_id = ?").run(convOwner.thread_id);
+                        safeConvId = mObj.conversation_id;
+                      }
+                    }
+
+                    const handledFloor = briefSeq > 0 ? briefSeq : Number(boardTail.head || 0);
+                    sql.prepare(`
+                      UPDATE threads SET
+                        conversation_id = ?,
+                        swarm_member_name = ?,
+                        swarm_model = COALESCE(?, swarm_model),
+                        swarm_state = 'working',
+                        swarm_origin_coordinator_id = ?,
+                        execution_backend = 'swarm',
+                        ui_bucket = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN ui_bucket ELSE 'working' END,
+                        server_status = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN server_status ELSE 'working' END,
+                        blocking_question = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN blocking_question ELSE NULL END,
+                        blocking_is_error = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN blocking_is_error ELSE 0 END,
+                        working_since = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN working_since ELSE COALESCE(working_since, ?) END,
+                        swarm_handled_seq = MAX(COALESCE(swarm_handled_seq, 0), ?),
+                        updated_at = ?
+                      WHERE thread_id = ?
+                    `).run(
+                      safeConvId,
+                      mName,
+                      mObj.model || (args.model && args.model !== "inherit" ? args.model : null),
+                      coordId || null,
+                      ts,
+                      handledFloor,
+                      ts,
+                      targetRow.thread_id
+                    );
+                    return targetRow.thread_id;
+                  });
+
+                  if (boundThreadId && mObj.conversation_id) {
+                    const finalOwner = sql.prepare("SELECT thread_id FROM threads WHERE conversation_id = ?").get(mObj.conversation_id);
+                    if (!finalOwner || finalOwner.thread_id === boundThreadId) {
+                      try {
+                        db.syncConversationBinding(mObj.conversation_id, {
+                          workspacePath,
+                          role: "worker",
+                          threadId: boundThreadId,
+                          projectId: cfg?.projectId || null
+                        });
+                      } catch {}
+                    }
+                  }
+
+                  if (marker?.dispatchId) {
+                    try { db.matchHubDispatch(workspacePath, marker.dispatchId, { targetMemberName: mName }); } catch {}
+                  } else {
+                    const fallbackDisp = sql
+                      .prepare(`
+                        SELECT dispatch_id FROM hub_dispatches
+                        WHERE status IN ('pending', 'claimed')
+                          AND action IN ('start', 'cron', 'pr_autofix')
+                          AND (
+                            thread_id = ?
+                            OR target_member_name = ?
+                            OR (? != '' AND target_member_name = ?)
+                          )
+                        ORDER BY
+                          CASE WHEN thread_id = ? THEN 0 WHEN target_member_name = ? THEN 1 ELSE 2 END,
+                          created_at DESC
+                        LIMIT 1
+                      `)
+                      .get(boundThreadId || "", mName, baseName, baseName, boundThreadId || "", mName);
+                    if (fallbackDisp) {
+                      try { db.matchHubDispatch(workspacePath, fallbackDisp.dispatch_id, { targetMemberName: mName }); } catch {}
+                    }
+                  }
+                }
+              } else if (parsedBrief?.dispatchId) {
+                if (parsedBrief.threadId) {
+                  sql.prepare(`
+                    UPDATE threads SET
+                      swarm_member_name = COALESCE(NULLIF(?, ''), swarm_member_name),
+                      swarm_state = 'working',
+                      swarm_origin_coordinator_id = COALESCE(?, swarm_origin_coordinator_id),
+                      execution_backend = 'swarm',
+                      ui_bucket = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN ui_bucket ELSE 'working' END,
+                      server_status = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN server_status ELSE 'working' END,
+                      working_since = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN working_since ELSE COALESCE(working_since, ?) END,
+                      updated_at = ?
+                    WHERE thread_id = ?
+                  `).run(baseName || "", coordId || null, ts, ts, parsedBrief.threadId);
+                }
+                try {
+                  db.matchHubDispatch(workspacePath, parsedBrief.dispatchId, {
+                    targetMemberName: baseName || null
+                  });
+                } catch {}
+              }
+            }
+          }
+        } else if (action === "model" && !input.error) {
+          const baseName = String(args.name || "").trim();
+          if (baseName && !SYSTEM_ROLE_NAME_RE.test(baseName)) {
+            const nameRe = new RegExp(`^${escapeRegExp(baseName)}(?:-\\d+)?$`, "i");
+            const { members } = readSwarmMembersMap(appDataDir, coordId);
+            const rawArgModel = args.model !== undefined && args.model !== null ? String(args.model).trim() : "";
+            const isInheritModel = !rawArgModel || rawArgModel === "inherit";
+            const resolvedExplicitModel = !isInheritModel ? (db.resolveSwarmModel(rawArgModel) || rawArgModel) : null;
+            const ts = db.nowIso();
+            const candidateThreads = sql
+              .prepare(`
+                SELECT thread_id, swarm_member_name FROM threads
+                WHERE swarm_member_name IS NOT NULL
+                  AND (swarm_origin_coordinator_id = ? OR swarm_origin_coordinator_id IS NULL)
+              `)
+              .all(coordId || "");
+            for (const row of candidateThreads) {
+              if (!nameRe.test(String(row.swarm_member_name || ""))) continue;
+              const nextModel = isInheritModel
+                ? (members[row.swarm_member_name]?.model || members.coordinator?.model || null)
+                : resolvedExplicitModel;
+              sql.prepare("UPDATE threads SET swarm_model = ?, updated_at = ? WHERE thread_id = ?")
+                .run(nextModel, ts, row.thread_id);
+            }
+            const modelDispatches = sql
+              .prepare("SELECT dispatch_id, target_member_name FROM hub_dispatches WHERE action = 'switch_model' AND status IN ('pending', 'claimed')")
+              .all();
+            for (const d of modelDispatches) {
+              if (d.target_member_name && nameRe.test(d.target_member_name)) {
+                try { db.matchHubDispatch(workspacePath, d.dispatch_id, { targetMemberName: d.target_member_name }); } catch {}
+              }
+            }
+          }
+        } else if (action === "kill" && !input.error) {
+          const baseName = String(args.name || "").trim();
+          if (baseName && !SYSTEM_ROLE_NAME_RE.test(baseName)) {
+            const nameRe = new RegExp(`^${escapeRegExp(baseName)}(?:-\\d+)?$`, "i");
+            const ts = db.nowIso();
+            const candidateThreads = sql
+              .prepare(`
+                SELECT thread_id, swarm_member_name FROM threads
+                WHERE swarm_member_name IS NOT NULL
+                  AND (swarm_origin_coordinator_id = ? OR swarm_origin_coordinator_id IS NULL)
+              `)
+              .all(coordId || "");
+            for (const row of candidateThreads) {
+              if (!nameRe.test(String(row.swarm_member_name || ""))) continue;
+              sql.prepare(`
+                UPDATE threads SET
+                  swarm_state = 'killed',
+                  ui_bucket = 'resolved',
+                  server_status = 'resolved',
+                  pre_pause_bucket = NULL,
+                  working_since = NULL,
+                  resolved_at = COALESCE(resolved_at, ?),
+                  blocking_question = NULL,
+                  blocking_is_error = 0,
+                  active_dispatch_id = CASE WHEN active_dispatch_id IS NOT NULL THEN NULL ELSE active_dispatch_id END,
+                  updated_at = ?
+                WHERE thread_id = ?
+              `).run(ts, ts, row.thread_id);
+            }
+            const killDispatches = sql
+              .prepare("SELECT dispatch_id, target_member_name FROM hub_dispatches WHERE action = 'kill' AND status IN ('pending', 'claimed')")
+              .all();
+            for (const d of killDispatches) {
+              if (d.target_member_name && nameRe.test(d.target_member_name)) {
+                try { db.matchHubDispatch(workspacePath, d.dispatch_id, { targetMemberName: d.target_member_name }); } catch {}
+              }
+            }
+          }
+        }
+      } else if (normTool === "post_message" && !input.error) {
+        const text = String(args.text || "");
+        const steerDispatches = sql
+          .prepare("SELECT dispatch_id, thread_id, target_member_name FROM hub_dispatches WHERE action = 'steer' AND status = 'claimed'")
+          .all();
+        const ts = db.nowIso();
+        for (const d of steerDispatches) {
+          if (d.target_member_name && db.hasExactMention(text, d.target_member_name)) {
+            try { db.matchHubDispatch(workspacePath, d.dispatch_id, { targetMemberName: d.target_member_name }); } catch {}
+            // Leave swarm_state untouched so syncSwarmIntoProjectDb waits for Turn 2 transcript without premature working->idle park
+            sql.prepare(`
+              UPDATE threads SET
+                ui_bucket = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN ui_bucket ELSE 'working' END,
+                server_status = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN server_status ELSE 'working' END,
+                blocking_question = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN blocking_question ELSE NULL END,
+                blocking_is_error = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN blocking_is_error ELSE 0 END,
+                working_since = CASE WHEN ui_bucket IN ('resolved', 'paused', 'landing') THEN working_since ELSE COALESCE(working_since, ?) END,
+                updated_at = ?
+              WHERE thread_id = ?
+            `).run(ts, ts, d.thread_id);
+          }
+        }
+      }
+    }
+
+    // Worker Swarm PostToolUse handlers (acting-member bounded derivation + board tail)
+    if (role === "worker" && thread && !input.error && (normTool === "post_message" || normTool === "swarm_wait")) {
+      try {
+        const appDataDir = db.getAppDataDir();
+        const coordId = thread.swarm_origin_coordinator_id || cfg?.coordinatorConversationId || null;
+        const { swarmDir, members } = readSwarmMembersMap(appDataDir, coordId);
+        const memberName = thread.swarm_member_name || "worker";
+        const memberObj = (thread.swarm_member_name && members[thread.swarm_member_name]) || {
+          name: memberName,
+          conversation_id: thread.conversation_id || conversationId,
+          role: "worker",
+          state: thread.swarm_state || "working"
+        };
+        const singleState = db.deriveSingleMemberState(appDataDir, memberObj);
+        const boardTail = swarmDir
+          ? db.readBoardTailSync(path.join(swarmDir, "board.jsonl"))
+          : { msgs: [], head: 0 };
+        const headSeq = Number(boardTail.head || 0);
+        const freshThread = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(thread.thread_id);
+        const protectedBucket =
+          freshThread && (freshThread.ui_bucket === "resolved" || freshThread.ui_bucket === "paused" || freshThread.ui_bucket === "landing");
+
+        if (freshThread && !protectedBucket) {
+          if (normTool === "post_message") {
+            const text = String(args.text || "").trim();
+            let latestMemberMsg = null;
+            for (let i = boardTail.msgs.length - 1; i >= 0; i--) {
+              const bm = boardTail.msgs[i];
+              if (bm && !bm.control && bm.agent === memberName) {
+                latestMemberMsg = bm;
+                break;
+              }
+            }
+            const memberPostSeq = latestMemberMsg ? (Number(latestMemberMsg.seq) || 0) : 0;
+            const handledSeq = memberPostSeq > 0 ? memberPostSeq : headSeq;
+            const formattedLastMsg = db.formatSwarmLastMessage(
+              latestMemberMsg || { seq: memberPostSeq, agent: memberName, text }
+            );
+
+            if (db.DONE_LINE_RE.test(text)) {
+              const summary =
+                db.oneLine(text.replace(/^\s*(?:@[a-z0-9_-]+\s+)+\[done\]\s*/i, ""), 240) || "Swarm worker finished";
+              const ts = db.nowIso();
+              sql.prepare(`
+                UPDATE threads SET
+                  ui_bucket = 'ready_for_review',
+                  server_status = ?,
+                  pre_pause_bucket = NULL,
+                  last_summary = ?,
+                  blocking_question = NULL,
+                  blocking_is_error = 0,
+                  working_since = NULL,
+                  swarm_state = ?,
+                  swarm_last_message = ?,
+                  swarm_last_seq = MAX(COALESCE(swarm_last_seq, 0), ?),
+                  swarm_handled_seq = MAX(COALESCE(swarm_handled_seq, 0), ?),
+                  updated_at = ?
+                WHERE thread_id = ?
+              `).run(
+                db.uiBucketToServerStatus("ready_for_review"),
+                summary,
+                singleState.status || freshThread.swarm_state,
+                formattedLastMsg,
+                memberPostSeq,
+                handledSeq,
+                ts,
+                thread.thread_id
+              );
+            } else {
+              const mentionsCoord = db.hasExactMention(text, "coordinator");
+              const isBlockedTag = mentionsCoord && db.BLOCKED_LINE_RE.test(text);
+              const rq = mentionsCoord && !isBlockedTag ? db.replyQuestion(text) : "";
+              if (isBlockedTag || rq) {
+                const question = isBlockedTag
+                  ? (db.oneLine(text.replace(/^\s*(?:@[a-z0-9_-]+\s+)+\[(?:blocked|question)\]\s*/i, ""), 240) ||
+                      db.replyQuestion(text) ||
+                      db.oneLine(text, 240) ||
+                      "Worker requested input.")
+                  : rq;
+                const ts = db.nowIso();
+                sql.prepare(`
+                  UPDATE threads SET
+                    ui_bucket = 'waiting_on_you',
+                    server_status = ?,
+                    pre_pause_bucket = NULL,
+                    blocking_question = ?,
+                    blocking_is_error = 0,
+                    working_since = NULL,
+                    swarm_state = ?,
+                    swarm_last_message = ?,
+                    swarm_last_seq = MAX(COALESCE(swarm_last_seq, 0), ?),
+                    swarm_handled_seq = MAX(COALESCE(swarm_handled_seq, 0), ?),
+                    updated_at = ?
+                  WHERE thread_id = ?
+                `).run(
+                  db.uiBucketToServerStatus("waiting_on_you"),
+                  question,
+                  singleState.status || freshThread.swarm_state,
+                  formattedLastMsg,
+                  memberPostSeq,
+                  handledSeq,
+                  ts,
+                  thread.thread_id
+                );
+              }
+            }
+          } else if (normTool === "swarm_wait") {
+            let hasActiveDispatch = false;
+            if (freshThread.active_dispatch_id) {
+              const nowStr = db.nowIso();
+              const activeDisp = sql
+                .prepare(`
+                  SELECT dispatch_id FROM hub_dispatches
+                  WHERE dispatch_id = ?
+                    AND ((status = 'pending' AND claim_expires_at > ?)
+                      OR (status = 'claimed' AND match_expires_at > ?))
+                `)
+                .get(freshThread.active_dispatch_id, nowStr, nowStr);
+              hasActiveDispatch = Boolean(activeDisp);
+            }
+            const rawSince = Number(args.since);
+            const parsedSince = Number.isFinite(rawSince) && rawSince >= 0 ? Math.floor(rawSince) : 0;
+            const waitHandledSeq = headSeq > 0 ? Math.min(headSeq, parsedSince) : parsedSince;
+
+            if (singleState.status === "killed") {
+              sql.prepare("UPDATE threads SET swarm_state = 'killed' WHERE thread_id = ?").run(thread.thread_id);
+            } else if (freshThread.ui_bucket === "working" && !hasActiveDispatch) {
+              const ts = db.nowIso();
+              sql.prepare(`
+                UPDATE threads SET
+                  ui_bucket = 'idle',
+                  server_status = 'idle',
+                  pre_pause_bucket = NULL,
+                  blocking_question = NULL,
+                  blocking_is_error = 0,
+                  working_since = NULL,
+                  swarm_state = 'waiting',
+                  swarm_handled_seq = MAX(COALESCE(swarm_handled_seq, 0), ?),
+                  updated_at = ?
+                WHERE thread_id = ?
+              `).run(waitHandledSeq, ts, thread.thread_id);
+            } else {
+              sql.prepare("UPDATE threads SET swarm_state = ? WHERE thread_id = ?")
+                .run(hasActiveDispatch ? (freshThread.swarm_state || "working") : "waiting", thread.thread_id);
+            }
+          }
+        }
+      } catch {}
+    }
+
+    // Auto-ingest deliverables written/edited by either Coordinator or Worker Threads (excluding scratch scripts and .system_generated)
+    if (!input.error && (toolName === "write_file" || toolName === "edit_file")) {
+      const writtenPath = args.Path || args.TargetFile || "";
+      const normalizedWrittenPath = String(writtenPath).split(path.sep).join("/");
+      const inSystemGenerated = normalizedWrittenPath.includes("/.system_generated/");
       const outputsDir = path.join(db.getProjectDir(workspacePath), "library", "outputs");
       const scratchDir = input.artifactDirectoryPath ? path.join(input.artifactDirectoryPath, "scratch") : "";
       const inOutputs = writtenPath && isInsideDir(writtenPath, outputsDir);
@@ -937,7 +1826,7 @@ function main() {
       const inScratch = writtenPath && scratchDir && isInsideDir(writtenPath, scratchDir);
       const ext = path.extname(writtenPath).toLowerCase();
       const allowedAutoExts = new Set([".md", ".txt", ".json", ".html", ".csv", ".pdf"]);
-      if ((inOutputs || (inArtifacts && !inScratch)) && allowedAutoExts.has(ext) && fs.existsSync(writtenPath)) {
+      if (!inSystemGenerated && (inOutputs || (inArtifacts && !inScratch)) && allowedAutoExts.has(ext) && fs.existsSync(writtenPath)) {
         try {
           db.ingestLibraryItem(workspacePath, {
             sourcePath: writtenPath,
@@ -958,8 +1847,40 @@ function main() {
       !input.continuationActive &&
       input.terminationReason === "NO_TOOL_CALL"
     ) {
-      const freshThread = sql.prepare("SELECT ui_bucket FROM threads WHERE thread_id = ?").get(thread.thread_id);
+      const freshThread = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(thread.thread_id);
       if (freshThread && freshThread.ui_bucket === "working") {
+        const isSwarmWorker = freshThread.execution_backend === "swarm" || Boolean(freshThread.swarm_member_name);
+        if (isSwarmWorker) {
+          const appDataDir = db.getAppDataDir();
+          const coordId = freshThread.swarm_origin_coordinator_id || cfg?.coordinatorConversationId || null;
+          const { members } = readSwarmMembersMap(appDataDir, coordId);
+          const memberObj = (freshThread.swarm_member_name && members[freshThread.swarm_member_name]) || {
+            name: freshThread.swarm_member_name || "worker",
+            conversation_id: freshThread.conversation_id || conversationId,
+            role: "worker",
+            state: freshThread.swarm_state || "working"
+          };
+          const derived = db.deriveSingleMemberState(appDataDir, memberObj);
+          if (derived && derived.status === "killed") {
+            return sendJson({ decision: "allow" });
+          }
+          if (
+            hasSwarmTurnBoardCompletion(
+              appDataDir,
+              coordId,
+              freshThread.swarm_member_name,
+              freshThread,
+              conversationId
+            )
+          ) {
+            return sendJson({ decision: "allow" });
+          }
+          return sendJson({
+            decision: "continue",
+            reason:
+              "Your Swarm Worker Thread is still marked 'working'. Before stopping, post your result with post_message (starting with '@coordinator [done] <summary>' or '@coordinator [blocked] <question>') and call swarm_wait."
+          });
+        }
         return sendJson({
           decision: "continue",
           reason:

@@ -1,0 +1,744 @@
+"use strict";
+
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const { createTestEnv } = require("./helpers.cjs");
+
+test("Memory curation, Library ingestion & search, Schedules, PRs, and Privacy-Safe Snapshots (AT-07)", async (t) => {
+  const env = createTestEnv("agy-t05-");
+  env.applyProcessEnv();
+  const db = require("../server/db.cjs");
+
+  t.after(async () => {
+    await env.cleanup();
+  });
+
+  const ws = env.makeWorkspace("data-ws");
+  db.createProject({ name: "Data Proj", workspacePath: ws, coordinatorConversationId: "coord-data" });
+
+  await t.test("Memory curation writes topics, rebuilds MEMORY.md, and enforces index bounds", () => {
+    const res = db.upsertMemoryTopic(ws, {
+      topicSlug: "sqlite-wal",
+      title: "SQLite WAL Mode",
+      markdownBody: "Always use WAL mode for concurrent reads and writes.",
+      indexSummaryLine: "Use WAL mode for concurrency"
+    });
+    assert.ok(res.lines > 0 && res.chars > 0 && res.topicCount === 1);
+    const { indexPath, topicsDir } = db.getMemoryPaths(ws);
+    assert.equal(fs.existsSync(path.join(topicsDir, "sqlite-wal.md")), true);
+    const indexText = fs.readFileSync(indexPath, "utf8");
+    assert.ok(indexText.includes("sqlite-wal"));
+    assert.ok(indexText.includes("Use WAL mode for concurrency"));
+
+    assert.throws(
+      () => db.saveRawMemoryIndex(ws, "a\n".repeat(250)),
+      /line index limit/i
+    );
+  });
+
+  await t.test("Library ingestion (pinning vs RAG indexing, size/path guards) and FTS5 hybrid search", () => {
+    // Reject sensitive path
+    assert.throws(
+      () => db.ingestLibraryItem(ws, { sourcePath: "/etc/passwd", category: "input" }),
+      /Forbidden/i
+    );
+
+    // Ingest small input -> pinned inline
+    const small = db.ingestLibraryItem(ws, {
+      category: "input",
+      sourceType: "upload",
+      filename: "spec.md",
+      content: "# Architecture Spec\nReciprocal Rank Fusion combines dense vectors and BM25 lexical matches.\n",
+      syncEmbeddings: false
+    });
+    assert.equal(small.item.category, "input");
+    assert.equal(small.libraryState.mode, "pinned");
+
+    // Lower auto-pin threshold to force Contextual Hybrid RAG chunking & FTS5 indexing
+    db.updateProjectSettings(ws, { autoPinLibraryTokenThreshold: 500 });
+    const bigContent = Array.from({ length: 120 }, (_, i) =>
+      `Line ${i + 1}: Quantum telemetry pipeline checkpoint token_${i} handles distributed reconciliation.`
+    ).join("\n");
+    const large = db.ingestLibraryItem(ws, {
+      category: "output",
+      sourceType: "coordinator_artifact",
+      filename: "report.md",
+      content: bigContent,
+      syncEmbeddings: false
+    });
+    assert.equal(large.item.source_type, "coordinator_artifact");
+    assert.equal(large.libraryState.mode, "rag");
+
+    const searchRes = db.searchProjectLibrary(ws, { query: "Quantum telemetry reconciliation", topK: 5 });
+    assert.ok(Array.isArray(searchRes.results) && searchRes.results.length > 0);
+    assert.ok(JSON.stringify(searchRes.results[0]).includes("Quantum telemetry"));
+  });
+
+  await t.test("Schedules & routines validation and due execution", async () => {
+    assert.throws(
+      () => db.upsertSchedule(ws, { name: "Bad Cron", cronExpr: "not a cron", prompt: "x" }),
+      /cron/i
+    );
+
+    const routine = db.upsertSchedule(ws, {
+      name: "Hourly Audit",
+      cronExpr: "0 * * * *",
+      prompt: "Audit state",
+      targetRole: "explorer",
+      enabled: true
+    });
+    assert.equal(routine.name, "Hourly Audit");
+
+    const sql = db.openProjectDb(ws);
+    sql.prepare("UPDATE scheduled_routines SET next_run_at = ? WHERE routine_id = ?").run(
+      "2000-01-01T00:00:00.000Z",
+      routine.routine_id
+    );
+    const dispatched = [];
+    const runRes = await db.processDueSchedules(ws, {
+      now: new Date(),
+      onDispatch: async (ctx) => {
+        dispatched.push(ctx);
+        return { ok: true };
+      }
+    });
+    assert.equal(runRes.dispatched.length, 1);
+    assert.equal(dispatched.length, 1);
+    assert.equal(dispatched[0].routine.routine_id, routine.routine_id);
+  });
+
+  await t.test("Repository binding, manageWorktree (create -> status -> cleanup), and syncPullRequests with stub gh", () => {
+    const repoDir = env.makeWorkspace("temp-git-repo");
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repoDir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
+    execFileSync("git", ["config", "user.name", "Test User"], { cwd: repoDir });
+    fs.writeFileSync(path.join(repoDir, "README.md"), "# Demo\n");
+    execFileSync("git", ["add", "README.md"], { cwd: repoDir });
+    execFileSync("git", ["commit", "-q", "-m", "initial commit"], { cwd: repoDir });
+
+    const bound = db.bindRepository(ws, { localPath: repoDir, name: "demo-repo", defaultBranch: "main" });
+    assert.equal(bound.name, "demo-repo");
+
+    const ownerThread = db.registerThread(ws, { role: "implementer", title: "PR Owner" });
+
+    // manageWorktree: create -> status -> cleanup
+    const wtCreate = db.manageWorktree(ws, {
+      action: "create",
+      threadId: ownerThread.thread_id,
+      repoId: bound.repo_id,
+      baseBranch: "main",
+      runSetup: false
+    });
+    assert.equal(wtCreate.created, true);
+    assert.equal(fs.existsSync(wtCreate.worktreePath), true);
+
+    const wtStatus = db.manageWorktree(ws, {
+      action: "status",
+      threadId: ownerThread.thread_id,
+      repoId: bound.repo_id
+    });
+    assert.equal(wtStatus.exists, true);
+    assert.equal(wtStatus.worktreePath, wtCreate.worktreePath);
+
+    const wtClean = db.manageWorktree(ws, {
+      action: "cleanup",
+      threadId: ownerThread.thread_id,
+      repoId: bound.repo_id
+    });
+    assert.equal(wtClean.cleanedUp, true);
+    assert.equal(fs.existsSync(wtCreate.worktreePath), false);
+
+    // syncPullRequests using stub gh executable in env.binDir on PATH
+    const ghStateFile = path.join(env.tmpRoot, "gh-state.json");
+    const ghBin = path.join(env.binDir, "gh");
+    fs.writeFileSync(
+      ghBin,
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('node:fs');",
+        `const st = JSON.parse(fs.readFileSync(${JSON.stringify(ghStateFile)}, 'utf8'));`,
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'pr' && args[1] === 'list') { console.log(JSON.stringify(st.list)); process.exit(0); }",
+        "if (args[0] === 'pr' && args[1] === 'view') { console.log(JSON.stringify(st.view)); process.exit(0); }",
+        "process.exit(1);"
+      ].join("\n") + "\n",
+      { mode: 0o755 }
+    );
+
+    const headBranch = wtCreate.branchName;
+    fs.writeFileSync(
+      ghStateFile,
+      JSON.stringify({
+        list: [
+          {
+            number: 42,
+            title: "Fix bug",
+            headRefName: headBranch,
+            baseRefName: "main",
+            url: "https://github.com/org/demo/pull/42"
+          }
+        ],
+        view: {
+          state: "OPEN",
+          reviewDecision: "CHANGES_REQUESTED",
+          mergeStateStatus: "CLEAN",
+          statusCheckRollup: [{ name: "ci-test", conclusion: "FAILURE" }],
+          reviews: [{ state: "CHANGES_REQUESTED", body: "Please fix lint", author: { login: "rev" } }],
+          comments: [],
+          additions: 10,
+          deletions: 2,
+          changedFiles: 1
+        }
+      })
+    );
+
+    const prevPath = process.env.PATH;
+    process.env.PATH = `${env.binDir}:${prevPath}`;
+    try {
+      const spawns = [];
+      const synced1 = db.syncPullRequests(ws, {
+        repoId: bound.repo_id,
+        triggerAutoFix: true,
+        onSpawnAutoFix: (payload) => {
+          spawns.push(payload);
+          return { started: true };
+        }
+      });
+      assert.equal(synced1.length, 1);
+      assert.equal(synced1[0].pr_number, 42);
+      assert.equal(synced1[0].ci_status, "failing");
+      assert.equal(synced1[0].autofix_attempts, 1);
+      assert.equal(spawns.length, 1);
+
+      // Apply mergeOrderRanks
+      const syncedRank = db.syncPullRequests(ws, {
+        repoId: bound.repo_id,
+        triggerAutoFix: false,
+        mergeOrderRanks: [{ prId: synced1[0].pr_id, rank: 1 }]
+      });
+      assert.equal(syncedRank[0].merge_order_rank, 1);
+
+      // 3-strike auto-fix disable: simulate attempts=3 and a new failing event
+      const sql = db.openProjectDb(ws);
+      sql.prepare("UPDATE pull_requests SET autofix_attempts = 3, last_seen_event_hash = 'oldhash' WHERE pr_id = ?").run(
+        synced1[0].pr_id
+      );
+      const syncedStrike = db.syncPullRequests(ws, {
+        repoId: bound.repo_id,
+        triggerAutoFix: true,
+        onSpawnAutoFix: (payload) => {
+          spawns.push(payload);
+          return { started: true };
+        }
+      });
+      assert.equal(spawns.length, 1, "3-strike PR must not trigger additional auto-fix");
+      assert.equal(syncedStrike[0].autofix_enabled, 0);
+
+      // Merged PR transitions cleanly to MERGED
+      const curSt = JSON.parse(fs.readFileSync(ghStateFile, "utf8"));
+      curSt.view.state = "MERGED";
+      curSt.view.statusCheckRollup = [{ name: "ci-test", conclusion: "SUCCESS" }];
+      curSt.view.reviewDecision = "APPROVED";
+      fs.writeFileSync(ghStateFile, JSON.stringify(curSt));
+
+      const syncedMerged = db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: false });
+      assert.equal(syncedMerged[0].state, "MERGED");
+
+      // GAP-13: Non-timeout relay failure must record eventHash & attempts and not loop every 60s
+      const prOwner2 = db.registerThread(ws, { role: "implementer", title: "PR Owner 2" });
+      const pr2Branch = `project/${prOwner2.thread_id}`;
+      const sql2 = db.openProjectDb(ws);
+      sql2.prepare("UPDATE threads SET branch_name = ? WHERE thread_id = ?").run(pr2Branch, prOwner2.thread_id);
+      fs.writeFileSync(
+        ghStateFile,
+        JSON.stringify({
+          list: [
+            {
+              number: 43,
+              title: "Relay failure PR",
+              headRefName: pr2Branch,
+              baseRefName: "main",
+              url: "https://github.com/org/demo/pull/43"
+            }
+          ],
+          view: {
+            state: "OPEN",
+            reviewDecision: "CHANGES_REQUESTED",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [{ name: "lint", conclusion: "FAILURE" }],
+            reviews: [],
+            comments: [],
+            additions: 5,
+            deletions: 1,
+            changedFiles: 1
+          }
+        })
+      );
+
+      let relayCalls = 0;
+      const failRelay = () => {
+        relayCalls++;
+        return {
+          dispatchedVia: "swarm",
+          ok: false,
+          started: false,
+          spawnFailed: false,
+          timedOut: false,
+          reason: "relay_failed",
+          error: "agentapi send-message failed"
+        };
+      };
+
+      // Poll 1: fails -> records eventHash + attempt=1 + waiting_on_you
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 1);
+      const pr43After1 = sql2.prepare("SELECT * FROM pull_requests WHERE pr_number = 43").get();
+      assert.equal(pr43After1.autofix_attempts, 1);
+      assert.ok(pr43After1.last_seen_event_hash);
+      const owner2After1 = sql2.prepare("SELECT ui_bucket, blocking_is_error FROM threads WHERE thread_id = ?").get(prOwner2.thread_id);
+      assert.equal(owner2After1.ui_bucket, "waiting_on_you");
+      assert.equal(owner2After1.blocking_is_error, 1);
+
+      // Poll 2 (same unchanged event): must NOT re-fire relay
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 1);
+
+      // Poll 3 & 4 (new distinct failure events): attempts reach 3 and auto-fix disables
+      const stNew1 = JSON.parse(fs.readFileSync(ghStateFile, "utf8"));
+      stNew1.view.statusCheckRollup.push({ name: "unit", conclusion: "FAILURE" });
+      fs.writeFileSync(ghStateFile, JSON.stringify(stNew1));
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 2);
+
+      stNew1.view.statusCheckRollup.push({ name: "e2e", conclusion: "FAILURE" });
+      fs.writeFileSync(ghStateFile, JSON.stringify(stNew1));
+      db.syncPullRequests(ws, { repoId: bound.repo_id, triggerAutoFix: true, onSpawnAutoFix: failRelay });
+      assert.equal(relayCalls, 3);
+      const pr43After3 = sql2.prepare("SELECT autofix_attempts, autofix_enabled FROM pull_requests WHERE pr_number = 43").get();
+      assert.equal(pr43After3.autofix_attempts, 3);
+      assert.equal(pr43After3.autofix_enabled, 0);
+    } finally {
+      process.env.PATH = prevPath;
+    }
+  });
+
+  await t.test("AT-07: Privacy-safe chat snapshots strip thinking, MCP payloads, uploads, and post-cutoff turns", () => {
+    const transcriptDir = path.join(env.appData, "brain", "coord-data", ".system_generated", "logs");
+    fs.mkdirSync(transcriptDir, { recursive: true });
+    const transcriptFile = path.join(transcriptDir, "transcript.jsonl");
+    const entries = [
+      {
+        step_index: 1,
+        type: "USER_INPUT",
+        content: "Summarize the project architecture.",
+        media: [{ mime_type: "application/pdf", uri: "/secret/upload.pdf" }]
+      },
+      {
+        step_index: 2,
+        type: "PLANNER_RESPONSE",
+        thinking: "INTERNAL SECRET THOUGHT THAT MUST BE STRIPPED",
+        content: "The architecture uses SQLite WAL and local ONNX embeddings.",
+        tool_calls: [{ name: "mcp_agy_projects_get_project_overview", args: { secret: "xyz" } }]
+      },
+      {
+        step_index: 3,
+        type: "USER_INPUT",
+        content: "PRIVATE POST-CUTOFF MESSAGE THAT MUST NOT APPEAR"
+      }
+    ];
+    fs.writeFileSync(transcriptFile, entries.map((e) => JSON.stringify(e)).join("\n") + "\n");
+
+    const snap = db.createChatSnapshot(ws, {
+      conversationId: "coord-data",
+      transcriptPath: transcriptFile,
+      title: "Arch Snapshot",
+      maxStepIndex: 2
+    });
+    assert.ok(snap.snapshotId);
+    const preview = db.readChatSnapshotPreview(ws, snap.snapshotId);
+    const previewText = JSON.stringify(preview);
+    assert.ok(previewText.includes("Summarize the project architecture."));
+    assert.ok(previewText.includes("SQLite WAL"));
+    assert.equal(previewText.includes("INTERNAL SECRET THOUGHT"), false);
+    assert.equal(previewText.includes("PRIVATE POST-CUTOFF MESSAGE"), false);
+    assert.equal(previewText.includes("/secret/upload.pdf"), false);
+
+    // Refresh cutoff in place and then revoke
+    const refreshed = db.createChatSnapshot(ws, {
+      snapshotId: snap.snapshotId,
+      conversationId: "coord-data",
+      transcriptPath: transcriptFile,
+      maxStepIndex: 3
+    });
+    assert.equal(refreshed.snapshotId, snap.snapshotId);
+    const preview2Text = JSON.stringify(db.readChatSnapshotPreview(ws, snap.snapshotId));
+    assert.ok(preview2Text.includes("PRIVATE POST-CUTOFF MESSAGE"));
+
+    const revoked = db.revokeChatSnapshot(ws, snap.snapshotId);
+    assert.equal(revoked.revoked, true);
+  });
+
+  await t.test("GAP-07 & GAP-08: envVars/ANTIGRAVITY_APP_DATA_DIR propagation and READONLY_MCP_TOOLS", () => {
+    db.updateProjectSettings(ws, {
+      environment: {
+        envVars: {
+          GEMINI_API_KEY: "test-proj-gemini-key",
+          CUSTOM_RAG_FLAG: "enabled",
+          LD_PRELOAD: "/evil.so",
+          NODE_OPTIONS: "--require /evil.js"
+        }
+      }
+    });
+
+    // Node db.buildProjectChildEnv
+    const childEnv = db.buildProjectChildEnv(ws);
+    assert.equal(childEnv.GEMINI_API_KEY, "test-proj-gemini-key");
+    assert.equal(childEnv.CUSTOM_RAG_FLAG, "enabled");
+    assert.equal(childEnv.ANTIGRAVITY_APP_DATA_DIR, path.resolve(env.appData));
+    assert.equal(childEnv.AGY_PROJECTS_DATA_DIR, path.resolve(env.sharedData));
+    assert.notEqual(childEnv.LD_PRELOAD, "/evil.so");
+    assert.notEqual(childEnv.NODE_OPTIONS, "--require /evil.js");
+
+    // Python rag_worker.py: verify READONLY_MCP_TOOLS, build_mcp_server_env, live mcp_server ping, and build_local_agent_config
+    const pyCheck = `
+import importlib.util, json, os, subprocess, sys, types
+from pathlib import Path
+
+spec = importlib.util.spec_from_file_location("rag_worker", ${JSON.stringify(path.join(env.REPO_ROOT, "server", "rag_worker.py"))})
+rw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(rw)
+
+assert "upsert_memory" in rw.READONLY_MCP_TOOLS, rw.READONLY_MCP_TOOLS
+assert "get_dispatch_context" in rw.READONLY_MCP_TOOLS, rw.READONLY_MCP_TOOLS
+
+mcp_env = rw.build_mcp_server_env(Path(${JSON.stringify(ws)}))
+assert mcp_env["GEMINI_API_KEY"] == "test-proj-gemini-key", mcp_env
+assert mcp_env["CUSTOM_RAG_FLAG"] == "enabled", mcp_env
+assert mcp_env["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve()), mcp_env
+assert mcp_env["AGY_PROJECTS_DATA_DIR"] == str(Path(${JSON.stringify(env.sharedData)}).resolve()), mcp_env
+assert "PATH" in mcp_env and mcp_env["PATH"], mcp_env
+if os.environ.get("HOME"):
+    assert mcp_env.get("HOME") == os.environ["HOME"], mcp_env
+assert "LD_PRELOAD" not in mcp_env and "NODE_OPTIONS" not in mcp_env, mcp_env
+
+# Verify live subprocess spawn of node mcp_server.cjs with env=mcp_env succeeds
+mcp_server_path = str(Path(${JSON.stringify(path.join(env.REPO_ROOT, "server", "mcp_server.cjs"))}).resolve())
+ping_res = subprocess.run(
+    ["node", mcp_server_path],
+    input=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}) + "\\n",
+    text=True,
+    capture_output=True,
+    env=mcp_env,
+    timeout=10,
+)
+assert ping_res.returncode == 0, ping_res.stderr
+ping_out = json.loads(ping_res.stdout.strip())
+assert ping_out["id"] == 1 and ping_out["result"] == {}, ping_out
+
+# Mock google.antigravity to inspect build_local_agent_config in both readonly and write modes
+ga = types.ModuleType("google.antigravity")
+ga_hooks = types.ModuleType("google.antigravity.hooks")
+ga_types = types.ModuleType("google.antigravity.types")
+
+class EnumVal:
+    def __init__(self, v): self.value = v
+
+class BuiltinTools:
+    LIST_DIR = EnumVal("list_dir")
+    SEARCH_DIR = EnumVal("search_dir")
+    FIND_FILE = EnumVal("find_file")
+    VIEW_FILE = EnumVal("view_file")
+    FINISH = EnumVal("finish")
+    SEARCH_WEB = EnumVal("search_web")
+    READ_URL_CONTENT = EnumVal("read_url_content")
+    RUN_COMMAND = EnumVal("run_command")
+
+class CapabilitiesConfig:
+    def __init__(self, **kw): self.kw = kw
+
+class LocalAgentConfig:
+    def __init__(self, **kw): self.kw = kw
+
+class McpStdioServer:
+    def __init__(self, **kw): self.kw = kw
+
+class PolicyNS:
+    def workspace_only(self, ws): return [("workspace_only", ws)]
+    def deny(self, target, tools=None, **kw): return [("deny", target, tools, kw)] if tools is not None else ("deny", target, kw)
+    def allow_all(self): return ("allow_all",)
+    def deny_all(self): return ("deny_all",)
+    def allow(self, *a): return [("allow", a)] if len(a) == 2 else ("allow", a[0])
+
+ga.BuiltinTools = BuiltinTools
+ga.CapabilitiesConfig = CapabilitiesConfig
+ga.LocalAgentConfig = LocalAgentConfig
+ga_hooks.policy = PolicyNS()
+ga_types.McpStdioServer = McpStdioServer
+sys.modules["google"] = types.ModuleType("google")
+sys.modules["google.antigravity"] = ga
+sys.modules["google.antigravity.hooks"] = ga_hooks
+sys.modules["google.antigravity.types"] = ga_types
+
+ro_cfg = rw.build_local_agent_config("readonly", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+ro_srv = ro_cfg.kw["mcp_servers"][0].kw
+assert ro_srv["env"]["GEMINI_API_KEY"] == "test-proj-gemini-key"
+assert ro_srv["env"]["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve())
+assert "upsert_memory" in ro_srv["enabled_tools"]
+assert "get_dispatch_context" in ro_srv["enabled_tools"]
+
+wr_cfg = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+wr_srv = wr_cfg.kw["mcp_servers"][0].kw
+assert wr_srv["env"]["GEMINI_API_KEY"] == "test-proj-gemini-key"
+assert wr_srv["env"]["ANTIGRAVITY_APP_DATA_DIR"] == str(Path(${JSON.stringify(env.appData)}).resolve())
+assert any(isinstance(p, tuple) and p[0] == "workspace_only" for p in wr_cfg.kw["policies"])
+
+# GAP-06: verify sandboxMode & networkPolicy enforcement in headless build_local_agent_config
+assert rw.is_headless_network_command_call({"CommandLine": "curl https://example.com"}) is True
+assert rw.is_headless_network_command_call({"CommandLine": "echo hi && git push origin main"}) is True
+assert rw.is_headless_network_command_call({"CommandLine": "ls -la"}) is False
+assert rw.is_headless_network_command_call({"CommandLine": "rg http src/"}) is False
+assert rw.is_headless_network_command_call({"CommandLine": "echo curl"}) is False
+assert rw.is_headless_network_command_call({"CommandLine": 'git commit -m "fix ssh"'}) is False
+
+cfg_file = Path(${JSON.stringify(ws)}) / ".agy-project" / "config.json"
+raw_cfg = json.loads(cfg_file.read_text(encoding="utf-8"))
+
+# sandboxMode=enabled + networkPolicy=deny -> workspace_only in both write & readonly, network tools denied
+raw_cfg["environment"]["sandboxMode"] = "enabled"
+raw_cfg["environment"]["networkPolicy"] = "deny"
+cfg_file.write_text(json.dumps(raw_cfg), encoding="utf-8")
+wr_deny = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+assert any(isinstance(p, tuple) and p[0] == "workspace_only" for p in wr_deny.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "search_web" for p in wr_deny.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "read_url_content" for p in wr_deny.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "run_command" and callable(p[2].get("when")) for p in wr_deny.kw["policies"])
+ro_sb = rw.build_local_agent_config("readonly", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+assert any(isinstance(p, tuple) and p[0] == "workspace_only" for p in ro_sb.kw["policies"])
+
+# sandboxMode=disabled + networkPolicy=ask -> workspace_only omitted, non-interactive network denied with ask reason
+raw_cfg["environment"]["sandboxMode"] = "disabled"
+raw_cfg["environment"]["networkPolicy"] = "ask"
+cfg_file.write_text(json.dumps(raw_cfg), encoding="utf-8")
+wr_ask = rw.build_local_agent_config("write", Path(${JSON.stringify(ws)}), "sys", "", workspace=Path(${JSON.stringify(ws)}))
+assert not any(isinstance(p, tuple) and p[0] == "workspace_only" for p in wr_ask.kw["policies"])
+assert any(isinstance(p, tuple) and p[0] == "deny" and p[1] == "search_web" and "ask" in p[2].get("reason", "") for p in wr_ask.kw["policies"])
+
+print(json.dumps({"ok": True}))
+`;
+    const pyOut = execFileSync("python3", ["-c", pyCheck], {
+      env: env.childEnv(),
+      encoding: "utf8"
+    });
+    assert.equal(JSON.parse(pyOut.trim()).ok, true);
+  });
+
+  await t.test("GAP-14: pre-thread manageWorktree('create') persists metadata and auto-links on registerThread", () => {
+    const preRepoPath = env.makeGitRepo("pre-wt-repo");
+    const bound = db.bindRepository(ws, { localPath: preRepoPath, name: "pre-wt-repo" });
+    const preThreadId = "t-pre-wt-link";
+
+    // Create worktree BEFORE registerThread
+    const created = db.manageWorktree(ws, { action: "create", threadId: preThreadId, repoId: bound.repo_id });
+    assert.equal(created.created, true);
+    assert.equal(fs.existsSync(created.worktreePath), true);
+
+    const statusBefore = db.manageWorktree(ws, { action: "status", threadId: preThreadId, repoId: bound.repo_id });
+    assert.equal(statusBefore.exists, true);
+    assert.equal(statusBefore.worktrees[bound.repo_id].worktreePath, created.worktreePath);
+
+    // Register thread afterwards: must auto-link worktree_path, repo_id, branch_name, and worktrees_json
+    const registered = db.registerThread(ws, {
+      threadId: preThreadId,
+      title: "Pre-linked worktree task",
+      role: "implementer",
+      workspaceMode: "worktree"
+    });
+    assert.equal(registered.worktree_path, created.worktreePath);
+    assert.equal(registered.repo_id, bound.repo_id);
+    assert.equal(registered.branch_name, `project/${preThreadId}`);
+    const parsedMap = JSON.parse(registered.worktrees_json || "{}");
+    assert.equal(parsedMap[bound.repo_id].worktreePath, created.worktreePath);
+
+    // Cleanup removes worktree, metadata file, and DB link
+    const cleaned = db.manageWorktree(ws, { action: "cleanup", threadId: preThreadId });
+    assert.equal(cleaned.cleanedUp, true);
+    assert.equal(fs.existsSync(created.worktreePath), false);
+    const metaFile = path.join(ws, ".agy-project", "worktrees", preThreadId, ".worktrees.json");
+    assert.equal(fs.existsSync(metaFile), false);
+  });
+
+  await t.test("GAP-16: PDF extraction retry in readLibraryItemText and library filename collision/traversal guards", () => {
+    const wsLib = env.makeWorkspace("ws-gap16");
+    db.createProject({ name: "Lib GAP16", workspacePath: wsLib });
+    db.updateProjectSettings(wsLib, { environment: { envVars: { GAP16_MARKER: "retry-env-ok" } } });
+
+    // 1. Subpath preservation (a/README.md vs b/README.md) with both distinct and identical content
+    const docA = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "a/README.md",
+      content: "# Folder A\nAlpha docs\n",
+      syncEmbeddings: false
+    });
+    const docB = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "b/README.md",
+      content: "# Folder A\nAlpha docs\n", // identical content -> must NOT collide on item_id PK!
+      syncEmbeddings: false
+    });
+    assert.equal(docA.item.rel_path, "library/inputs/a/README.md");
+    assert.equal(docB.item.rel_path, "library/inputs/b/README.md");
+    assert.notEqual(docA.item.item_id, docB.item.item_id);
+    assert.equal(fs.existsSync(path.join(wsLib, ".agy-project", docA.item.rel_path)), true);
+    assert.equal(fs.existsSync(path.join(wsLib, ".agy-project", docB.item.rel_path)), true);
+
+    // 2. Flat filename collision (report.md uploaded twice with different content -> disambiguates, preserves both)
+    const r1 = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "report.md",
+      content: "Report version 1",
+      syncEmbeddings: false
+    });
+    const r2 = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "report.md",
+      content: "Report version 2 (different)",
+      syncEmbeddings: false
+    });
+    assert.equal(r1.item.rel_path, "library/inputs/report.md");
+    assert.notEqual(r2.item.rel_path, r1.item.rel_path);
+    assert.match(r2.item.rel_path, /^library\/inputs\/report-[0-9a-f]{8}\.md$/);
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", r1.item.rel_path), "utf8"), "Report version 1");
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", r2.item.rel_path), "utf8"), "Report version 2 (different)");
+
+    // Re-uploading identical content to same filename is idempotent
+    const r1Again = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "report.md",
+      content: "Report version 1",
+      syncEmbeddings: false
+    });
+    assert.equal(r1Again.item.item_id, r1.item.item_id);
+    assert.equal(r1Again.item.rel_path, r1.item.rel_path);
+
+    // 2b. Parent file-vs-directory collisions: file 'docs' followed by 'docs/guide.md', and 'foo/bar.md' followed by file 'foo'
+    const docsFile = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "docs",
+      content: "Flat docs file",
+      syncEmbeddings: false
+    });
+    const docsNested = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "docs/guide.md",
+      content: "Nested guide inside docs",
+      syncEmbeddings: false
+    });
+    assert.equal(docsFile.item.rel_path, "library/inputs/docs");
+    assert.match(docsNested.item.rel_path, /^library\/inputs\/docs-[0-9a-f]{8}\/guide\.md$/);
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", docsFile.item.rel_path), "utf8"), "Flat docs file");
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", docsNested.item.rel_path), "utf8"), "Nested guide inside docs");
+
+    const fooNested = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      relativePath: "foo/bar.md",
+      content: "Nested bar",
+      syncEmbeddings: false
+    });
+    const fooFile = db.ingestLibraryItem(wsLib, {
+      category: "input",
+      filename: "foo",
+      content: "Flat foo file",
+      syncEmbeddings: false
+    });
+    assert.equal(fooNested.item.rel_path, "library/inputs/foo/bar.md");
+    assert.match(fooFile.item.rel_path, /^library\/inputs\/foo-[0-9a-f]{8}$/);
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", fooNested.item.rel_path), "utf8"), "Nested bar");
+    assert.equal(fs.readFileSync(path.join(wsLib, ".agy-project", fooFile.item.rel_path), "utf8"), "Flat foo file");
+
+    // 3. Path traversal & absolute filename rejection
+    for (const badName of ["../escape.md", "sub/../../escape.md", "/etc/passwd", "bad\0name.md"]) {
+      assert.throws(
+        () => db.ingestLibraryItem(wsLib, { category: "input", filename: badName, content: "x", syncEmbeddings: false }),
+        /Invalid library/i
+      );
+    }
+    assert.equal(db.readLibraryItemText(wsLib, { item_id: "x", rel_path: "../../etc/passwd", mime_type: "text/plain" }), "");
+
+    // 4. PDF extraction retry in readLibraryItemText when extracted/<itemId>.txt is missing
+    const venvBin = path.join(env.sharedData, "venv", "bin");
+    fs.mkdirSync(venvBin, { recursive: true });
+    const fakePy = path.join(venvBin, "python");
+    const modeFile = path.join(env.tmpRoot, "pdf-stub-mode.txt");
+    fs.writeFileSync(modeFile, "fail", "utf8");
+    fs.writeFileSync(
+      fakePy,
+      `#!/usr/bin/env node
+const fs = require("fs");
+const mode = fs.readFileSync(${JSON.stringify(modeFile)}, "utf8").trim();
+if (process.argv.includes("extract-doc")) {
+  if (mode === "ok") {
+    console.log(JSON.stringify({
+      ok: true,
+      pageCount: 2,
+      pdfMode: "visual_and_text",
+      text: "## Page 1\\nRetried PDF text (env=" + (process.env.GAP16_MARKER || "") + ")"
+    }));
+    process.exit(0);
+  }
+  process.exit(1);
+}
+console.log(JSON.stringify({ ok: true }));
+`,
+      { mode: 0o755 }
+    );
+
+    try {
+      const pdfBytes = Buffer.from("%PDF-1.4\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF\n", "utf8");
+      const pdfIngest = db.ingestLibraryItem(wsLib, {
+        category: "input",
+        filename: "spec.pdf",
+        content: pdfBytes,
+        syncEmbeddings: false
+      });
+      const extractedFile = db.getExtractedTextPath(wsLib, pdfIngest.item.item_id);
+      assert.equal(fs.existsSync(extractedFile), false, "initial failed extract should not write extracted txt");
+
+      // While extractor still fails, readLibraryItemText gracefully returns PDF placeholder
+      const fallbackText = db.readLibraryItemText(wsLib, pdfIngest.item);
+      assert.match(fallbackText, /\[PDF Asset:/);
+
+      // Once extractor succeeds, readLibraryItemText retries, returns extracted text, and persists extracted/<itemId>.txt
+      fs.writeFileSync(modeFile, "ok", "utf8");
+      const retriedText = db.readLibraryItemText(wsLib, pdfIngest.item);
+      assert.ok(retriedText.includes("Retried PDF text (env=retry-env-ok)"));
+      assert.equal(fs.existsSync(extractedFile), true);
+      assert.equal(fs.readFileSync(extractedFile, "utf8"), retriedText);
+    } finally {
+      fs.rmSync(path.join(env.sharedData, "venv"), { recursive: true, force: true });
+    }
+  });
+
+  await t.test("GAP-20: bindRepository detects and returns repo rule file paths alongside claude_md_etag", () => {
+    const ruleRepo = env.makeGitRepo("repo-with-rules");
+    fs.writeFileSync(path.join(ruleRepo, "CLAUDE.md"), "# Claude Rules\n", "utf8");
+    fs.writeFileSync(path.join(ruleRepo, "AGENTS.md"), "# Agents Rules\n", "utf8");
+    fs.writeFileSync(path.join(ruleRepo, ".cursorrules"), "cursor rules\n", "utf8");
+    fs.mkdirSync(path.join(ruleRepo, ".agents", "rules"), { recursive: true });
+    fs.writeFileSync(path.join(ruleRepo, ".agents", "rules", "style.md"), "# Style\n", "utf8");
+
+    const bound = db.bindRepository(ws, { localPath: ruleRepo, name: "repo-with-rules" });
+    assert.ok(bound.claude_md_etag && bound.claude_md_etag.length === 16);
+    assert.equal(bound.claudeMdEtag, bound.claude_md_etag);
+    assert.deepEqual(bound.detectedRuleFiles, [
+      "CLAUDE.md",
+      "AGENTS.md",
+      ".cursorrules",
+      ".agents/rules/style.md"
+    ]);
+    assert.equal(bound.detectedRuleFilePaths.length, 4);
+    assert.ok(bound.detectedRuleFilePaths.every((p) => fs.existsSync(p)));
+  });
+});

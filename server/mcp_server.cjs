@@ -48,7 +48,27 @@ function notifySidecar(workspacePath, extra = {}) {
 }
 
 function requireWorkspace(args = {}) {
-  const ws = db.resolveActiveWorkspace(args.workspacePath, args.projectId);
+  const hasExplicitWs =
+    args.workspacePath !== undefined &&
+    args.workspacePath !== null &&
+    String(args.workspacePath).trim() !== "";
+  if (hasExplicitWs) {
+    return db.resolveActiveWorkspace(args.workspacePath, args.projectId);
+  }
+  const hasExplicitPid =
+    args.projectId !== undefined &&
+    args.projectId !== null &&
+    String(args.projectId).trim() !== "";
+  if (!hasExplicitPid) {
+    const convId = process.env.ANTIGRAVITY_CONVERSATION_ID || "";
+    if (convId) {
+      const binding = db.resolveSessionBinding(convId, []);
+      if (binding?.bound && binding.workspacePath && db.hasProjectInitialized(binding.workspacePath)) {
+        return path.resolve(binding.workspacePath);
+      }
+    }
+  }
+  const ws = db.resolveActiveWorkspace(undefined, args.projectId);
   if (!ws || !db.hasProjectInitialized(ws)) {
     throw new Error(
       "No active AGY Project found. Initialize one first with create_project({ name, workspacePath }) or select an existing project with select_project."
@@ -129,6 +149,7 @@ const TOOLS = [
         instructions: { type: "string" },
         useAccountMemory: { type: "boolean" },
         maxIndexLines: { type: "number" },
+        maxIndexChars: { type: "number" },
         autoPinLibraryTokenThreshold: { type: "number" },
         embeddingProvider: { type: "string", enum: ["local_onnx", "gemini_cloud"] },
         cloudEmbeddingModel: { type: "string", enum: ["gemini-embedding-2", "gemini-embedding-001"] },
@@ -141,7 +162,11 @@ const TOOLS = [
         maxNewThreadsPerDay: { type: "number" },
         idleAutoResolveDays: { type: "number" },
         requireApprovalBeforeSpawn: { type: "boolean" },
-        defaultWorkspaceMode: { type: "string", enum: ["share", "branch", "inherit"] },
+        defaultWorkspaceMode: { type: "string", enum: ["share", "branch", "worktree", "inherit"] },
+        executionEngine: { type: "string", enum: ["swarm", "headless", "subagent"] },
+        autoSpawnSwarmMonitor: { type: "boolean" },
+        dispatchClaimTtlSeconds: { type: "number" },
+        dispatchMatchTtlSeconds: { type: "number" },
         environment: { type: "object" },
         sharing: { type: "object" }
       }
@@ -178,7 +203,7 @@ const TOOLS = [
   },
   {
     name: "propose_threads",
-    description: "Create 'suggested' Worker Thread cards in Project Hub awaiting user approval or batch Start All.",
+    description: "Create 'suggested' Worker Thread cards in Project Hub awaiting user approval or batch Start All, returning deterministic Swarm launch hints.",
     inputSchema: {
       type: "object",
       properties: {
@@ -192,6 +217,7 @@ const TOOLS = [
               description: { type: "string" },
               role: { type: "string", enum: ["explorer", "implementer", "verifier", "pr-fixer", "pr_fixer"] },
               repoId: { type: "string" },
+              swarmModel: { type: "string" },
               workspaceMode: { type: "string", enum: ["inherit", "share", "branch", "worktree"] },
               ownedGlobs: { type: "array", items: { type: "string" } }
             },
@@ -204,7 +230,7 @@ const TOOLS = [
   },
   {
     name: "register_thread",
-    description: "Bind a spawned subagent conversationId to a Worker Thread and transition it to 'working'.",
+    description: "Bind a spawned subagent or Swarm worker conversationId to a Worker Thread and transition it to 'working'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -215,6 +241,10 @@ const TOOLS = [
         role: { type: "string" },
         conversationId: { type: "string" },
         model: { type: "string" },
+        swarmMemberName: { type: "string" },
+        swarmModel: { type: "string" },
+        executionBackend: { type: "string" },
+        swarmOriginCoordinatorId: { type: "string" },
         workspaceMode: { type: "string" },
         repoId: { type: "string" },
         branchName: { type: "string" },
@@ -299,9 +329,20 @@ const TOOLS = [
         content: { type: "string", description: "Inline UTF-8 content if creating directly." },
         filename: { type: "string", description: "Target filename when passing inline content." },
         category: { type: "string", enum: ["input", "output"] },
-        sourceType: { type: "string", enum: ["upload", "local_file", "gdrive", "gdoc", "gsheet", "thread_artifact", "git_doc"] },
+        sourceType: {
+          type: "string",
+          enum: ["upload", "local_file", "gdrive", "gdoc", "gsheet", "thread_artifact", "coordinator_artifact", "git_doc"]
+        },
         title: { type: "string" },
-        producerThreadId: { type: "string" }
+        producerThreadId: { type: "string" },
+        allowLargeLocal: {
+          type: "boolean",
+          description: "Allow larger file size caps (up to 200 MB local file / 45 MB inline payload) instead of the 30 MB default limit."
+        },
+        syncEmbeddings: {
+          type: "boolean",
+          description: "Wait synchronously for embedding generation after ingestion (default false)."
+        }
       },
       required: ["category"]
     }
@@ -370,7 +411,7 @@ const TOOLS = [
         cronExpr: { type: "string", description: "Standard 5-field cron expression, e.g. '0 9 * * 1-5'." },
         prompt: { type: "string" },
         targetRole: { type: "string", enum: ["explorer", "implementer", "verifier", "pr-fixer", "pr_fixer"] },
-        workspaceMode: { type: "string", enum: ["inherit", "share", "branch"] },
+        workspaceMode: { type: "string", enum: ["inherit", "share", "branch", "worktree"] },
         enabled: { type: "boolean" }
       },
       required: ["name", "cronExpr", "prompt"]
@@ -395,7 +436,7 @@ const TOOLS = [
   },
   {
     name: "get_project_overview",
-    description: "Return full project configuration, thread bucket counts, library mode, memory stats, PRs, and the Project Hub sidecar link.",
+    description: "Return full project configuration, thread bucket counts, library mode, memory stats, PRs, Swarm summary, and the Project Hub sidecar link.",
     inputSchema: {
       type: "object",
       properties: {
@@ -403,8 +444,56 @@ const TOOLS = [
         projectId: { type: "string" }
       }
     }
+  },
+  {
+    name: "claim_hub_dispatch",
+    description: "Atomically claim a pending Hub Swarm dispatch using its dispatchId and single-use nonce, returning the exact swarm(add)/post_message/swarm(model)/swarm(kill) payload and suggestedPlan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspacePath: { type: "string" },
+        dispatchId: { type: "string" },
+        nonce: { type: "string" },
+        matchTtlSeconds: { type: "number" }
+      },
+      required: ["dispatchId", "nonce"]
+    }
+  },
+  {
+    name: "fail_hub_dispatch",
+    description: "Report a non-retryable Coordinator failure to fulfill a pending or claimed Hub Swarm dispatch, releasing reserved quota slots and surfacing the error on the thread.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspacePath: { type: "string" },
+        dispatchId: { type: "string" },
+        nonce: { type: "string" },
+        reason: { type: "string" }
+      },
+      required: ["dispatchId", "nonce"]
+    }
+  },
+  {
+    name: "get_dispatch_context",
+    description: "Retrieve untrusted external context (e.g., GitHub PR comments/checks) attached to a Hub dispatch outside the public Swarm message board.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspacePath: { type: "string" },
+        dispatchId: { type: "string" }
+      },
+      required: ["dispatchId"]
+    }
   }
 ];
+
+const PROJECT_HUB_PILL = "[Project Hub](sidecar://agy-projects/project_hub/ui.html)";
+const SWARM_UI_PILL = "[Open the Swarm UI](sidecar://swarm/swarm_board/?auto_open=false)";
+const SIDECAR_PILL_FIELDS = {
+  sidecarPill: PROJECT_HUB_PILL,
+  swarmPill: SWARM_UI_PILL,
+  sidecarPills: [PROJECT_HUB_PILL, SWARM_UI_PILL]
+};
 
 function executeTool(name, args = {}) {
   switch (name) {
@@ -420,7 +509,7 @@ function executeTool(name, args = {}) {
       notifySidecar(created.workspacePath);
       return {
         ...created,
-        sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
+        ...SIDECAR_PILL_FIELDS
       };
     }
 
@@ -436,7 +525,7 @@ function executeTool(name, args = {}) {
       notifySidecar(sel.workspacePath);
       return {
         ...sel,
-        sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
+        ...SIDECAR_PILL_FIELDS
       };
     }
 
@@ -516,12 +605,34 @@ function executeTool(name, args = {}) {
         summary: args.summary || ""
       });
       notifySidecar(ws);
-      return res;
+      return {
+        ...res,
+        ...SIDECAR_PILL_FIELDS
+      };
     }
 
     case "propose_threads": {
       const ws = requireWorkspace(args);
-      const threads = db.proposeThreads(ws, args.proposals || []);
+      const rawThreads = db.proposeThreads(ws, args.proposals || []);
+      const cfg = db.loadProjectConfig(ws);
+      const activeSwarm = db.readActiveSwarmState(ws);
+      const existingMembers = { ...(activeSwarm?.members || {}) };
+      const threads = rawThreads.map((t) => {
+        const role = db.normalizeRole(t.role || "explorer");
+        const rawModel = db.resolveConfiguredThreadModel(cfg, role, t.swarm_model, t.model);
+        const resolvedSwarmModel = db.resolveSwarmModel(rawModel);
+        const resolvedWorkspace = db.resolveSwarmWorkspace(cfg, ws, role, t.workspace_mode);
+        const swarmMemberName =
+          t.swarm_member_name ||
+          db.toSwarmWorkerName(ws, t.thread_id, role, t.title, existingMembers);
+        existingMembers[swarmMemberName] = { name: swarmMemberName };
+        return {
+          ...t,
+          swarmMemberName,
+          resolvedSwarmModel,
+          resolvedWorkspace
+        };
+      });
       notifySidecar(ws);
       return { createdCount: threads.length, threads };
     }
@@ -534,8 +645,10 @@ function executeTool(name, args = {}) {
     }
 
     case "update_thread_state": {
-      const ws = requireWorkspace(args);
-      const thread = db.updateThreadState(ws, args);
+      const fallbackConvId = args.conversationId || process.env.ANTIGRAVITY_CONVERSATION_ID || undefined;
+      const mergedArgs = fallbackConvId ? { ...args, conversationId: fallbackConvId } : args;
+      const ws = requireWorkspace(mergedArgs);
+      const thread = db.updateThreadState(ws, mergedArgs);
       notifySidecar(ws);
       return { thread };
     }
@@ -613,11 +726,44 @@ function executeTool(name, args = {}) {
     }
 
     case "get_project_overview": {
-      const snap = db.buildFullWorkspaceSnapshot(args.workspacePath);
+      const ws = db.resolveActiveWorkspace(args.workspacePath, args.projectId);
+      const snap = db.buildFullWorkspaceSnapshot(ws || undefined);
       return {
         ...snap,
-        sidecarPill: "[Project Hub](sidecar://agy-projects/project_hub/ui.html)"
+        swarm: snap.swarm || {
+          active: false,
+          verifiedCapable: false,
+          backend: null,
+          unsupportedReason: null,
+          coordinatorConversationId: null,
+          title: "",
+          head: 0,
+          counts: { total: 0, working: 0, waiting: 0, killed: 0 },
+          pendingDispatches: []
+        },
+        ...SIDECAR_PILL_FIELDS
       };
+    }
+
+    case "claim_hub_dispatch": {
+      const ws = requireWorkspace(args);
+      const res = db.claimHubDispatch(ws, args.dispatchId, args.nonce, {
+        matchTtlSeconds: args.matchTtlSeconds
+      });
+      notifySidecar(ws);
+      return res;
+    }
+
+    case "fail_hub_dispatch": {
+      const ws = requireWorkspace(args);
+      const res = db.failHubDispatch(ws, args.dispatchId, args.nonce, args.reason);
+      notifySidecar(ws);
+      return res;
+    }
+
+    case "get_dispatch_context": {
+      const ws = requireWorkspace(args);
+      return db.getDispatchContext(ws, args.dispatchId);
     }
 
     default:
@@ -676,7 +822,87 @@ rl.on("line", (line) => {
     }
 
     if (method === "resources/list") {
-      return sendRpc({ jsonrpc: "2.0", id, result: { resources: [] } });
+      const activeWs = (() => {
+        try {
+          return db.resolveActiveWorkspace();
+        } catch {
+          return null;
+        }
+      })();
+      if (!activeWs || !db.hasProjectInitialized(activeWs)) {
+        return sendRpc({ jsonrpc: "2.0", id, result: { resources: [] } });
+      }
+      return sendRpc({
+        jsonrpc: "2.0",
+        id,
+        result: {
+          resources: [
+            {
+              uri: "agy-project://active/memory",
+              name: "Active Project MEMORY.md",
+              description: "Curated project memory index for the active AGY Project.",
+              mimeType: "text/markdown"
+            },
+            {
+              uri: "agy-project://active/overview",
+              name: "Active Project Overview",
+              description: "Full JSON workspace snapshot for the active AGY Project.",
+              mimeType: "application/json"
+            }
+          ]
+        }
+      });
+    }
+
+    if (method === "resources/read") {
+      const uri = typeof params?.uri === "string" ? params.uri.trim() : "";
+      if (!uri) {
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32602, message: "Missing required parameter: uri" }
+        });
+      }
+      const activeWs = (() => {
+        try {
+          return db.resolveActiveWorkspace();
+        } catch {
+          return null;
+        }
+      })();
+      if (!activeWs || !db.hasProjectInitialized(activeWs)) {
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32602, message: `Resource not found (no active project): ${uri}` }
+        });
+      }
+      if (uri === "agy-project://active/memory") {
+        const memPath = path.join(db.getProjectDir(activeWs), "memory", "MEMORY.md");
+        const memText = fs.existsSync(memPath) ? fs.readFileSync(memPath, "utf8") : "";
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            contents: [{ uri, mimeType: "text/markdown", text: memText }]
+          }
+        });
+      }
+      if (uri === "agy-project://active/overview") {
+        const snap = db.buildFullWorkspaceSnapshot(activeWs);
+        return sendRpc({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            contents: [{ uri, mimeType: "application/json", text: JSON.stringify(snap, null, 2) }]
+          }
+        });
+      }
+      return sendRpc({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32602, message: `Resource not found: ${uri}` }
+      });
     }
 
     if (method === "prompts/list") {

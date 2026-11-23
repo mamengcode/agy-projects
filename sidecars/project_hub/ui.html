@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
   <title>AGY Project Hub</title>
   <script src="/preload.js"></script>
   <style>
@@ -485,6 +486,15 @@
       background: var(--ph-surface);
       margin-block-end: 8px;
     }
+    .thread-item.swarm-helper {
+      border-inline-start: 3px solid var(--ph-accent);
+      background: color-mix(in srgb, var(--ph-surface) 94%, var(--ph-accent));
+    }
+    .td-board-msg {
+      padding: 6px 0;
+      border-bottom: 1px solid var(--ph-border);
+    }
+    .td-board-msg:last-child { border-bottom: none; }
     .row-between {
       display: flex;
       align-items: center;
@@ -647,19 +657,21 @@
       <span id="status-badge" class="badge">No Project</span>
     </div>
     <div class="topbar-right">
+      <span id="swarm-status-pill" class="badge" role="button" tabindex="0" style="cursor:pointer" title="Click to open Swarm Board" hidden>Swarm: 0 working</span>
+      <button type="button" id="btn-open-swarm-board" class="small" disabled title="Open live Swarm Board and roster">Swarm Board</button>
       <button type="button" id="btn-open-coordinator" class="small" disabled>Open Chat</button>
       <button type="button" id="btn-new-project" class="primary small">+ New</button>
     </div>
   </header>
 
   <main class="tabs-root">
-    <div class="tablist" id="main-tablist" focusgroup="tablist nomemory" aria-label="Project Hub Views">
-      <button type="button" id="tab-overview" aria-selected="true" focusgroupstart>Overview</button>
-      <button type="button" id="tab-threads">Threads <span id="cnt-threads" class="muted"></span></button>
-      <button type="button" id="tab-library">Library <span id="cnt-library" class="muted"></span></button>
-      <button type="button" id="tab-memory">Memory</button>
-      <button type="button" id="tab-prs">Pull Requests <span id="cnt-prs" class="muted"></span></button>
-      <button type="button" id="tab-settings">Settings</button>
+    <div class="tablist" id="main-tablist" role="tablist" focusgroup="tablist nomemory" aria-label="Project Hub Views">
+      <button type="button" role="tab" id="tab-overview" aria-selected="true" aria-controls="panel-overview" focusgroupstart>Overview</button>
+      <button type="button" role="tab" id="tab-threads" aria-selected="false" aria-controls="panel-threads">Threads <span id="cnt-threads" class="muted"></span></button>
+      <button type="button" role="tab" id="tab-library" aria-selected="false" aria-controls="panel-library">Library <span id="cnt-library" class="muted"></span></button>
+      <button type="button" role="tab" id="tab-memory" aria-selected="false" aria-controls="panel-memory">Memory</button>
+      <button type="button" role="tab" id="tab-prs" aria-selected="false" aria-controls="panel-prs">Pull Requests <span id="cnt-prs" class="muted"></span></button>
+      <button type="button" role="tab" id="tab-settings" aria-selected="false" aria-controls="panel-settings">Settings</button>
     </div>
 
     <div class="panels-grid">
@@ -742,6 +754,7 @@
                     <option value="all">All Modes</option>
                     <option value="share">share</option>
                     <option value="branch">branch</option>
+                    <option value="worktree">worktree</option>
                     <option value="inherit">inherit</option>
                   </select>
                 </div>
@@ -914,18 +927,40 @@
                   <label for="set-coordinator-model">Coordinator Model</label>
                   <select id="set-coordinator-model" name="coordinatorModel">
                     <option value="inherit">inherit (Host Default)</option>
-                    <option value="pro">pro</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="pro">pro</option>
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-default-model">Default Worker Thread Model</label>
                   <select id="set-default-model" name="defaultThreadModel">
                     <option value="inherit">inherit (Coordinator Model)</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
@@ -933,6 +968,7 @@
                   <select id="set-ws-mode" name="defaultWorkspaceMode">
                     <option value="share">share (Isolated Working Copy)</option>
                     <option value="branch">branch (Full Clone)</option>
+                    <option value="worktree">worktree (Managed Git Worktree)</option>
                     <option value="inherit">inherit (Shared CWD)</option>
                   </select>
                 </div>
@@ -942,36 +978,80 @@
                   <label for="set-role-explorer">Explorer Role Model</label>
                   <select id="set-role-explorer" name="roleExplorerModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-role-implementer">Implementer Role Model</label>
                   <select id="set-role-implementer" name="roleImplementerModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-role-verifier">Verifier Role Model</label>
                   <select id="set-role-verifier" name="roleVerifierModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-role-pr-fixer">PR-Fixer Role Model</label>
                   <select id="set-role-pr-fixer" name="rolePrFixerModel">
                     <option value="inherit">inherit</option>
-                    <option value="flash">flash</option>
-                    <option value="flash_lite">flash_lite</option>
-                    <option value="pro">pro</option>
+                    <optgroup label="Built-in Swarm Models">
+                      <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+                      <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+                      <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+                      <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+                      <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+                      <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+                      <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+                    </optgroup>
+                    <optgroup label="Legacy Tier Aliases">
+                      <option value="flash">flash</option>
+                      <option value="flash_lite">flash_lite</option>
+                      <option value="pro">pro</option>
+                    </optgroup>
                   </select>
                 </div>
               </div>
@@ -989,9 +1069,31 @@
                   <input type="number" id="set-idle-days" name="idleAutoResolveDays" min="1" max="365">
                 </div>
               </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px">
+                <div class="field">
+                  <label for="set-exec-engine">Execution Engine</label>
+                  <select id="set-exec-engine" name="executionEngine">
+                    <option value="swarm">swarm (Built-in Swarm)</option>
+                    <option value="subagent">subagent (Native Chat / Subagent)</option>
+                    <option value="headless">headless (Headless Python SDK)</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="set-claim-ttl">Dispatch Claim TTL (sec)</label>
+                  <input type="number" id="set-claim-ttl" name="dispatchClaimTtlSeconds" min="30" max="3600">
+                </div>
+                <div class="field">
+                  <label for="set-match-ttl">Dispatch Match TTL (sec)</label>
+                  <input type="number" id="set-match-ttl" name="dispatchMatchTtlSeconds" min="30" max="3600">
+                </div>
+              </div>
               <div class="checkbox-row" style="margin-top:8px;margin-bottom:0">
                 <input type="checkbox" id="set-require-approval" name="requireApprovalBeforeSpawn">
                 <label for="set-require-approval">Require Coordinator planning approval before spawning write-enabled Worker Threads</label>
+              </div>
+              <div class="checkbox-row" style="margin-top:6px;margin-bottom:0">
+                <input type="checkbox" id="set-auto-swarm-monitor" name="autoSpawnSwarmMonitor">
+                <label for="set-auto-swarm-monitor">Auto-spawn Swarm monitor helper to watch for stalled workers</label>
               </div>
               <div class="checkbox-row" style="margin-top:6px;margin-bottom:0">
                 <input type="checkbox" id="chk-show-archived" name="showArchived">
@@ -1022,6 +1124,10 @@
                 <div class="field">
                   <label for="set-max-mem-lines">MEMORY.md Max Lines (&le;200)</label>
                   <input type="number" id="set-max-mem-lines" name="maxIndexLines" min="20" max="200">
+                </div>
+                <div class="field">
+                  <label for="set-max-mem-chars">MEMORY.md Max Chars (&le;16,000)</label>
+                  <input type="number" id="set-max-mem-chars" name="maxIndexChars" min="1000" max="16000">
                 </div>
                 <div class="field">
                   <label for="set-pin-threshold">Auto-Pin Token Threshold</label>
@@ -1066,18 +1172,18 @@
                 <div class="field">
                   <label for="set-sandbox-mode">Sandbox Mode</label>
                   <select id="set-sandbox-mode" name="sandboxMode">
-                    <option value="inherit">inherit</option>
-                    <option value="enabled">enabled</option>
-                    <option value="disabled">disabled</option>
+                    <option value="inherit">inherit (Host Default / Workspace-Only Headless)</option>
+                    <option value="enabled">enabled (Enforce Workspace Boundary)</option>
+                    <option value="disabled">disabled (Allow External Paths)</option>
                   </select>
                 </div>
                 <div class="field">
                   <label for="set-network-policy">Network Policy</label>
                   <select id="set-network-policy" name="networkPolicy">
-                    <option value="inherit">inherit</option>
+                    <option value="inherit">inherit (Host Default)</option>
                     <option value="allow">allow</option>
-                    <option value="ask">ask</option>
-                    <option value="deny">deny</option>
+                    <option value="ask">ask (Prompt Interactive / Block Headless)</option>
+                    <option value="deny">deny (Block All Outbound Network)</option>
                   </select>
                 </div>
               </div>
@@ -1105,7 +1211,7 @@
             <h3 class="card-title" style="margin-bottom:8px">4. Plugins &amp; Scheduled Cron Routines</h3>
             <div id="plugins-list" style="margin-bottom:12px"></div>
             <div class="card-header" style="margin-top:8px">
-              <strong style="font-size:12.5px">Scheduled Cron Routines (30s Runner via Antigravity Python SDK)</strong>
+              <strong style="font-size:12.5px">Scheduled Cron Routines (30s Runner: Swarm-First + Headless Fallback)</strong>
               <button type="button" id="btn-new-routine" class="small">+ Add Routine</button>
             </div>
             <div id="routines-list"></div>
@@ -1228,6 +1334,48 @@
         </select>
       </div>
       <div class="field">
+        <label for="nt-model">Worker Model</label>
+        <select id="nt-model" name="model">
+          <option value="inherit">inherit (Role / Default Model)</option>
+          <optgroup label="Built-in Swarm Models">
+            <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+            <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+            <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+            <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+            <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+            <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+            <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+          </optgroup>
+          <optgroup label="Legacy Tier Aliases">
+            <option value="pro">pro</option>
+            <option value="flash">flash</option>
+            <option value="flash_lite">flash_lite</option>
+          </optgroup>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field">
+          <label for="pt-ws-mode">Workspace Mode</label>
+          <select id="pt-ws-mode" name="workspaceMode">
+            <option value="">Default (Project / Role Setting)</option>
+            <option value="share">share (Isolated Working Copy)</option>
+            <option value="branch">branch (Full Clone)</option>
+            <option value="worktree">worktree (Managed Git Worktree)</option>
+            <option value="inherit">inherit (Shared CWD)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="pt-repo">Target Repository (optional)</label>
+          <select id="pt-repo" name="repoId">
+            <option value="">Default / Any Repo</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="pt-owned-globs">Owned File Globs (comma-separated, optional)</label>
+        <input type="text" id="pt-owned-globs" name="ownedGlobs" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="e.g. src/auth/**, tests/auth/**">
+      </div>
+      <div class="field">
         <label for="pt-desc">Task Brief &amp; Acceptance Criteria <span aria-hidden="true">*</span></label>
         <textarea id="pt-desc" name="description" rows="4" required></textarea>
       </div>
@@ -1265,10 +1413,11 @@
     </form>
   </dialog>
 
-  <!-- MODAL: Add Routine -->
+  <!-- MODAL: Add / Edit Routine -->
   <dialog id="dlg-routine" closedby="any" aria-labelledby="dlg-rt-title">
     <form action="#" method="post" class="dialog-body" id="form-routine" aria-labelledby="dlg-rt-title">
       <h3 id="dlg-rt-title" style="margin:0">Add Scheduled Cron Routine</h3>
+      <input type="hidden" id="rt-id" name="routineId">
       <div class="field">
         <label for="rt-name">Routine Name <span aria-hidden="true">*</span></label>
         <input type="text" id="rt-name" name="name" required autofocus placeholder="Morning Test Audit">
@@ -1277,14 +1426,29 @@
         <label for="rt-cron">5-Field Cron Expression <span aria-hidden="true">*</span></label>
         <input type="text" id="rt-cron" name="cronExpr" required autocorrect="off" autocapitalize="none" spellcheck="false" value="0 9 * * 1-5">
       </div>
-      <div class="field">
-        <label for="rt-role">Target Role</label>
-        <select id="rt-role" name="targetRole">
-          <option value="explorer">explorer (Read-Only)</option>
-          <option value="verifier">verifier (Read-Only QA)</option>
-          <option value="implementer">implementer (Write Enabled)</option>
-          <option value="pr-fixer">pr-fixer (Write CI Remediation)</option>
-        </select>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="field">
+          <label for="rt-role">Target Role</label>
+          <select id="rt-role" name="targetRole">
+            <option value="explorer">explorer (Read-Only)</option>
+            <option value="verifier">verifier (Read-Only QA)</option>
+            <option value="implementer">implementer (Write Enabled)</option>
+            <option value="pr-fixer">pr-fixer (Write CI Remediation)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="rt-ws-mode">Workspace Mode</label>
+          <select id="rt-ws-mode" name="workspaceMode">
+            <option value="share">share</option>
+            <option value="branch">branch</option>
+            <option value="worktree">worktree</option>
+            <option value="inherit">inherit</option>
+          </select>
+        </div>
+      </div>
+      <div class="checkbox-row" style="margin-bottom:0">
+        <input type="checkbox" id="rt-enabled" name="enabled" checked>
+        <label for="rt-enabled">Enabled (run automatically on cron schedule)</label>
       </div>
       <div class="field">
         <label for="rt-prompt">Prompt <span aria-hidden="true">*</span></label>
@@ -1331,7 +1495,24 @@
         </div>
       </div>
       <div id="td-meta" class="muted mono"></div>
+      <section id="td-worktree-section" hidden aria-labelledby="td-wt-heading">
+        <div class="row-between" style="margin-bottom:4px">
+          <strong id="td-wt-heading" style="font-size:12px">Managed Git Worktrees</strong>
+          <div style="display:flex;gap:6px">
+            <button type="button" id="btn-td-wt-status" class="small">Inspect Status</button>
+            <button type="button" id="btn-td-wt-cleanup" class="danger small">Clean Up Worktree</button>
+          </div>
+        </div>
+        <div id="td-worktree-list" class="muted mono" style="font-size:11px;white-space:pre-wrap"></div>
+      </section>
       <pre id="td-telemetry" class="code-preview" role="region" aria-label="Thread telemetry log" tabindex="0"><code id="td-telemetry-code"></code></pre>
+      <section id="td-swarm-board-section" hidden aria-labelledby="td-swarm-board-heading">
+        <div class="row-between" style="margin-bottom:4px">
+          <strong id="td-swarm-board-heading" style="font-size:12px">Swarm Board Activity</strong>
+          <button type="button" id="btn-td-refresh-board" class="small">↻ Refresh Board</button>
+        </div>
+        <div id="td-swarm-board-list" class="code-preview" style="max-height:180px;overflow-y:auto;white-space:normal" role="region" aria-label="Swarm board messages" tabindex="0"></div>
+      </section>
       <form action="#" method="post" id="form-steer-thread" aria-labelledby="steer-form-label" style="display:flex;flex-direction:column;gap:8px">
         <input type="hidden" id="steer-thread-id" name="threadId">
         <div class="field">
@@ -1339,10 +1520,79 @@
           <textarea id="steer-input" name="message" rows="3" required autofocus placeholder="Send instructions, answers, or feedback to this thread..."></textarea>
         </div>
         <div class="row-between">
-          <span class="muted">Dispatches to the bound conversation via Sidecar SDK or wakes the headless worker.</span>
+          <span id="steer-form-hint" class="muted">Dispatches to the Swarm Coordinator board, Sidecar SDK, or headless worker.</span>
           <button type="submit" id="btn-submit-steer" class="primary">Send Steering Message</button>
         </div>
       </form>
+    </div>
+  </dialog>
+
+  <!-- MODAL: Switch Swarm Worker Model -->
+  <dialog id="dlg-switch-model" closedby="any" aria-labelledby="dlg-sm-title">
+    <form action="#" method="post" class="dialog-body" id="form-switch-model" aria-labelledby="dlg-sm-title">
+      <h3 id="dlg-sm-title" style="margin:0">Switch Swarm Worker Model</h3>
+      <input type="hidden" id="sm-thread-id" name="threadId">
+      <div id="sm-target-label" class="muted mono"></div>
+      <div class="field">
+        <label for="sm-model">Target Model</label>
+        <select id="sm-model" name="model">
+          <option value="inherit">inherit (Coordinator Model)</option>
+          <optgroup label="Built-in Swarm Models">
+            <option value="claude-opus-5-5-high">claude-opus-5-5-high</option>
+            <option value="claude-opus-5-5-medium">claude-opus-5-5-medium</option>
+            <option value="claude-sonnet-5-5-medium">claude-sonnet-5-5-medium</option>
+            <option value="gemini-4-hydrogen-xhigh">gemini-4-hydrogen-xhigh</option>
+            <option value="gemini-4-hydrogen-high">gemini-4-hydrogen-high</option>
+            <option value="gemini-3.8-flash-high">gemini-3.8-flash-high</option>
+            <option value="gemini-3.8-flash-medium">gemini-3.8-flash-medium</option>
+          </optgroup>
+          <optgroup label="Legacy Tier Aliases">
+            <option value="pro">pro</option>
+            <option value="flash">flash</option>
+            <option value="flash_lite">flash_lite</option>
+          </optgroup>
+        </select>
+      </div>
+      <div class="field">
+        <label for="sm-custom-model">Custom Model ID (optional override)</label>
+        <input type="text" id="sm-custom-model" name="customModel" autocorrect="off" autocapitalize="none" spellcheck="false" placeholder="Leave blank to use selected model above">
+      </div>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-switch-model">Cancel</button>
+        <button type="submit" id="btn-submit-switch-model" class="primary">Switch Model</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Confirm Kill Swarm Worker -->
+  <dialog id="dlg-kill-worker" closedby="any" aria-labelledby="dlg-kw-title">
+    <form action="#" method="post" class="dialog-body" id="form-kill-worker" aria-labelledby="dlg-kw-title">
+      <h3 id="dlg-kw-title" style="margin:0;color:var(--ph-err)">Kill Swarm Worker</h3>
+      <input type="hidden" id="kw-thread-id" name="threadId">
+      <p id="kw-confirm-msg" style="margin:0"></p>
+      <div class="row-between">
+        <button type="button" data-close-dlg="dlg-kill-worker">Cancel</button>
+        <button type="submit" id="btn-submit-kill-worker" class="danger">Confirm Kill Worker</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- MODAL: Live Swarm Board & Roster -->
+  <dialog id="dlg-swarm-board" closedby="any" aria-labelledby="dlg-sb-title" style="max-width:min(760px,95vw)">
+    <div class="dialog-body">
+      <div class="row-between">
+        <div>
+          <h3 id="dlg-sb-title" style="margin:0">Swarm Board</h3>
+          <div id="sb-summary" class="muted mono" style="margin-top:2px"></div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" id="btn-sb-refresh" class="small">Refresh</button>
+          <button type="button" id="btn-sb-focus-coord" class="small">Open Coordinator Chat</button>
+          <button type="button" data-close-dlg="dlg-swarm-board" class="small">Close</button>
+        </div>
+      </div>
+      <div id="sb-roster" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center" aria-label="Swarm roster and filters"></div>
+      <div id="sb-messages" class="code-preview" style="max-height:55vh;overflow:auto;white-space:normal" role="region" aria-label="Swarm board message feed" tabindex="0"></div>
     </div>
   </dialog>
 
@@ -1430,29 +1680,12 @@
         });
       }
 
-      function isOpaqueOrigin() {
-        try {
-          return !window.location.origin || window.location.origin === "null";
-        } catch {
-          return true;
-        }
-      }
-
       function apiUrl(pathname) {
-        const clean = pathname.startsWith("/") ? pathname : `/${pathname}`;
-        if (!sidecarToken) return clean;
-        const sep = clean.includes("?") ? "&" : "?";
-        return `${clean}${sep}token=${encodeURIComponent(sidecarToken)}`;
+        return pathname.startsWith("/") ? pathname : `/${pathname}`;
       }
 
       function buildAuthHeaders(hasJsonBody) {
         const headers = {};
-        if (isOpaqueOrigin() && sidecarToken) {
-          if (hasJsonBody) {
-            headers["Content-Type"] = "text/plain;charset=UTF-8";
-          }
-          return headers;
-        }
         if (hasJsonBody) {
           headers["Content-Type"] = "application/json";
         }
@@ -1579,20 +1812,71 @@
         }
       }
 
-      // Safe untrusted HTML snippet renderer using native Sanitizer API setHTML() with textContent fallback
+      // Safe untrusted HTML snippet renderer using native Sanitizer API setHTML() with attribute-free DOM tokenizer fallback
       function renderSafeSnippet(container, rawSnippet) {
-        const escaped = String(rawSnippet || "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;");
-        const formatted = `<code>${escaped}</code>`;
-        if ("setHTML" in Element.prototype) {
-          container.setHTML(formatted, {
-            sanitizer: { elements: ["code", "mark", "strong", "em"], attributes: [] }
-          });
-        } else {
-          container.textContent = String(rawSnippet || "");
+        const input = String(rawSnippet || "");
+        if ("setHTML" in Element.prototype && typeof container?.setHTML === "function") {
+          try {
+            container.setHTML(`<code>${input}</code>`, {
+              sanitizer: { elements: ["code", "mark", "strong", "em"], attributes: [] }
+            });
+            return;
+          } catch {}
         }
+        const decodeBasicEntities = (s) =>
+          s.replace(/&(lt|gt|quot|#39|#x27|amp);/gi, (_, ent) => {
+            const k = ent.toLowerCase();
+            if (k === "lt") return "<";
+            if (k === "gt") return ">";
+            if (k === "quot") return '"';
+            if (k === "#39" || k === "#x27") return "'";
+            return "&";
+          });
+        const codeEl = document.createElement("code");
+        const allowed = new Set(["mark", "strong", "em", "code"]);
+        const tokenRe = /<(\/?)([a-zA-Z][a-zA-Z0-9-]*)\b[^>]*>/g;
+        const stack = [codeEl];
+        let lastIdx = 0;
+        let match;
+        while ((match = tokenRe.exec(input)) !== null) {
+          if (match.index > lastIdx) {
+            stack[stack.length - 1].appendChild(
+              document.createTextNode(decodeBasicEntities(input.slice(lastIdx, match.index)))
+            );
+          }
+          const isClose = match[1] === "/";
+          const tag = match[2].toLowerCase();
+          if (allowed.has(tag)) {
+            if (!isClose) {
+              const el = document.createElement(tag);
+              stack[stack.length - 1].appendChild(el);
+              stack.push(el);
+            } else {
+              for (let i = stack.length - 1; i >= 1; i--) {
+                if (stack[i].tagName.toLowerCase() === tag) {
+                  stack.length = i;
+                  break;
+                }
+              }
+            }
+          } else if (!isClose && (tag === "script" || tag === "style")) {
+            const closeRe = new RegExp(`</${tag}\\s*>`, "i");
+            const rest = input.slice(tokenRe.lastIndex);
+            const closeM = closeRe.exec(rest);
+            if (closeM) {
+              tokenRe.lastIndex += closeM.index + closeM[0].length;
+            } else {
+              tokenRe.lastIndex = input.length;
+            }
+          }
+          lastIdx = tokenRe.lastIndex;
+        }
+        if (lastIdx < input.length) {
+          stack[stack.length - 1].appendChild(
+            document.createTextNode(decodeBasicEntities(input.slice(lastIdx)))
+          );
+        }
+        container.replaceChildren(codeEl);
       }
 
       function formatElapsedSeconds(sec) {
@@ -1923,6 +2207,9 @@
       let draftGoalText = null;
       let lastActiveProjectId = "";
       let inspectedThreadId = "";
+      let lastLoadedBoardKey = "";
+      let swarmBoardMemberFilter = "";
+      let lastLoadedProjectBoardKey = "";
 
       function openConversationInHost(convId, label) {
         if (!convId) {
@@ -1931,6 +2218,7 @@
         }
         if (window.sidecar?.ui && typeof window.sidecar.ui.toggleConversation === "function") {
           window.sidecar.ui.toggleConversation(convId);
+          showToast(`Focused ${label || "conversation"} in chat.`);
           return true;
         }
         showToast(`Conversation ID: ${convId}`);
@@ -1944,36 +2232,62 @@
           openConversationInHost(cfg.coordinatorConversationId, "Coordinator");
           return;
         }
-        if (window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
-          try {
-            const starter = `Continue coordinating AGY Project "${cfg.name}" in ${state.workspacePath}. Call get_project_overview first.`;
-            const res = await window.sidecar.agent.startConversation(starter, `${cfg.name} Coordinator`);
-            const newId = res?.conversationId || res?.response?.conversationId || "";
-            if (newId) {
-              await api("/api/projects/select", {
-                projectId: cfg.projectId,
-                bindCoordinatorConversationId: newId
-              });
-              openConversationInHost(newId, "Coordinator");
-              await refreshState();
-              return;
-            }
-          } catch (err) {
-            showToast(err.message || "Could not launch Coordinator chat", true);
+        try {
+          showToast("Ensuring Swarm Coordinator session…");
+          const res = await api("/api/coordinator/ensure", {
+            projectId: cfg.projectId,
+            autoSpawn: true
+          });
+          const newId = res?.coordinatorConversationId || "";
+          if (newId) {
+            openConversationInHost(newId, "Coordinator");
+            await refreshState();
             return;
           }
+          showToast("Coordinator ensured; open from host chat to interact.");
+        } catch (err) {
+          showToast(err.message || "Could not launch Coordinator chat", true);
         }
-        showToast("Bind the Coordinator from chat via create_project or select_project.");
       }
 
       async function startSuggestedThreadFromUi(thread, opts = {}) {
         if (!thread) return;
         const verb = opts && opts.isRetry ? "Retrying" : "Started";
+        if (shouldDispatchViaSwarmUi()) {
+          let res;
+          try {
+            res = await api("/api/threads/action", {
+              action: "start",
+              threadId: thread.thread_id,
+              autoStartCoordinator: true,
+              launchViaSwarm: true,
+              launchHeadless: false
+            });
+          } catch (err) {
+            showToast(err.message || `Failed to dispatch ${thread.title}`, true);
+            throw err;
+          }
+          if (res?.relayTimedOut) {
+            showToast(`Swarm dispatch queued (relay timed out): ${thread.title}`, true);
+          } else if (res?.headlessAuthMissing) {
+            showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+          } else if (res?.dispatchedVia === "swarm") {
+            showToast(`Dispatched ${thread.title} to Swarm Coordinator`);
+          } else {
+            showToast(`${verb} ${thread.title}`);
+          }
+          await refreshState();
+          return;
+        }
+        const engine = state?.config?.orchestration?.executionEngine || "swarm";
         const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
-        if (headlessReady) {
+        const preferSubagent = engine === "subagent";
+        const preferHeadless = engine === "headless" || (!preferSubagent && headlessReady);
+        if (preferHeadless) {
           const res = await api("/api/threads/action", {
             action: "start",
             threadId: thread.thread_id,
+            executionBackend: "headless",
             launchHeadless: true
           });
           if (res.headlessAuthMissing) {
@@ -1991,11 +2305,12 @@
             `\nReport progress and completion via update_thread_state(workspacePath="${state.workspacePath}", threadId="${thread.thread_id}", ...).`
           ].join("\n");
           const started = await window.sidecar.agent.startConversation(prompt, thread.title);
-          const newConvId = started?.conversationId || started?.response?.conversationId || "";
+          const newConvId = started?.conversationId || started?.response?.conversationId || started?.response?.newConversation?.conversationId || "";
           await api("/api/threads/action", {
             action: "start",
             threadId: thread.thread_id,
             conversationId: newConvId || undefined,
+            executionBackend: "subagent",
             launchHeadless: false
           });
           if (newConvId) {
@@ -2009,7 +2324,8 @@
         const res = await api("/api/threads/action", {
           action: "start",
           threadId: thread.thread_id,
-          launchHeadless: true
+          executionBackend: preferSubagent ? "subagent" : "headless",
+          launchHeadless: !preferSubagent
         });
         if (res.headlessAuthMissing) {
           showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
@@ -2019,12 +2335,66 @@
         await refreshState();
       }
 
+      function shouldDispatchViaSwarmUi() {
+        const engine = state?.config?.orchestration?.executionEngine;
+        const unsupported = state?.swarm?.unsupportedReason || state?.diagnostics?.connectors?.builtinSwarm?.unsupportedReason;
+        if (unsupported) return false;
+        if (engine === "swarm") return true;
+        if (engine === "headless" || engine === "subagent") return false;
+        return Boolean(
+          state?.diagnostics?.connectors?.builtinSwarm?.ok ||
+            state?.swarm?.active ||
+            state?.swarm?.verifiedCapable ||
+            state?.config?.coordinatorConversationId
+        );
+      }
+
       async function startSuggestedBatchFromUi({ mode = "all", threadIds = [] } = {}) {
+        if (shouldDispatchViaSwarmUi()) {
+          const payload =
+            mode === "selected"
+              ? { action: "start_selected", threadIds: Array.from(threadIds || []), autoStartCoordinator: true, launchViaSwarm: true, launchHeadless: false }
+              : { action: "start_all", autoStartCoordinator: true, launchViaSwarm: true, launchHeadless: false };
+          let res;
+          try {
+            res = await api("/api/threads/action", payload);
+          } catch (err) {
+            showToast(err.message || "Failed to dispatch tasks to Swarm", true);
+            throw err;
+          }
+          selectedSuggestedIds.clear();
+          const failNote =
+            res?.partialFailure && Array.isArray(res.failures) && res.failures.length > 0
+              ? ` (${res.failures.length} failed: ${res.failures[0].error})`
+              : "";
+          if (res?.headlessAuthMissing) {
+            showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
+          } else if (res?.dispatchedVia === "swarm") {
+            const cnt = res.dispatchCount ?? res.startedCount ?? 0;
+            showToast(
+              (mode === "selected"
+                ? `Dispatched ${cnt} selected task(s) to Swarm Coordinator`
+                : `Dispatched ${cnt} task(s) to Swarm Coordinator`) + failNote,
+              Boolean(failNote)
+            );
+          } else {
+            showToast(
+              (mode === "selected"
+                ? `Started ${res.startedCount} selected task(s)`
+                : `Started ${res.startedCount} task(s)`) + failNote,
+              Boolean(failNote)
+            );
+          }
+          await refreshState();
+          return;
+        }
+        const engine = state?.config?.orchestration?.executionEngine || "swarm";
         const headlessReady = Boolean(state.diagnostics?.connectors?.headlessSdk?.ok);
         const hasNativeChat = Boolean(
           window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function"
         );
-        if (!headlessReady && hasNativeChat) {
+        const useNativeSubagent = engine === "subagent" || (engine !== "headless" && !headlessReady && hasNativeChat);
+        if (useNativeSubagent && hasNativeChat) {
           const allThreads = Array.isArray(state.threads) ? state.threads : [];
           const idSet = new Set((threadIds || []).map(String));
           const targets = allThreads.filter(
@@ -2046,19 +2416,34 @@
           return;
         }
 
+        const useHeadless = engine !== "subagent";
         const payload =
           mode === "selected"
-            ? { action: "start_selected", threadIds: Array.from(threadIds || []), launchHeadless: true }
-            : { action: "start_all", launchHeadless: true };
+            ? {
+                action: "start_selected",
+                threadIds: Array.from(threadIds || []),
+                executionBackend: useHeadless ? "headless" : "subagent",
+                launchHeadless: useHeadless
+              }
+            : {
+                action: "start_all",
+                executionBackend: useHeadless ? "headless" : "subagent",
+                launchHeadless: useHeadless
+              };
         const res = await api("/api/threads/action", payload);
         selectedSuggestedIds.clear();
+        const failNote =
+          res?.partialFailure && Array.isArray(res.failures) && res.failures.length > 0
+            ? ` (${res.failures.length} failed: ${res.failures[0].error})`
+            : "";
         if (res.headlessAuthMissing) {
           showToast("Headless SDK requires GEMINI_API_KEY (or GOOGLE_GENAI_USE_VERTEXAI=1). Use native Chat instead.", true);
         } else {
           showToast(
-            mode === "selected"
+            (mode === "selected"
               ? `Started ${res.startedCount} selected task(s)`
-              : `Started ${res.startedCount} task(s)`
+              : `Started ${res.startedCount} task(s)`) + failNote,
+            Boolean(failNote)
           );
         }
         await refreshState();
@@ -2067,6 +2452,46 @@
       async function sendThreadReplyOrSteer(thread, messageText) {
         const msg = String(messageText || "").trim();
         if (!msg) return;
+        if (thread?.swarm_member_name) {
+          if (thread.swarm_state === "killed") {
+            throw new Error(`Cannot steer killed Swarm worker @${thread.swarm_member_name}.`);
+          }
+          const res = await api("/api/threads/action", {
+            action: "steer",
+            threadId: thread.thread_id,
+            message: msg
+          });
+          draftReplies.delete(thread.thread_id);
+          if (res?.relayTimedOut) {
+            showToast(`Steer queued for @${thread.swarm_member_name} (Coordinator relay timed out)`, true);
+          } else {
+            showToast(`Sent steering message to @${thread.swarm_member_name}`);
+          }
+          await refreshState();
+          return;
+        }
+        if (thread?.execution_backend === "swarm" && !thread.swarm_member_name) {
+          const combinedPrompt = [
+            thread.description ? String(thread.description).trim() : "",
+            `User Follow-up Instruction:\n${msg}`
+          ].filter(Boolean).join("\n\n");
+          const res = await api("/api/threads/action", {
+            action: "start",
+            threadId: thread.thread_id,
+            prompt: combinedPrompt,
+            autoStartCoordinator: true,
+            launchViaSwarm: true,
+            launchHeadless: false
+          });
+          draftReplies.delete(thread.thread_id);
+          if (res?.relayTimedOut) {
+            showToast(`Swarm launch queued for ${thread.title} (Coordinator relay timed out)`, true);
+          } else {
+            showToast(`Dispatched ${thread.title} to Swarm Coordinator`);
+          }
+          await refreshState();
+          return;
+        }
         const res = await api("/api/threads/action", {
           action: "steer",
           threadId: thread.thread_id,
@@ -2087,6 +2512,166 @@
         await refreshState();
       }
 
+      function isSwarmThread(t) {
+        return Boolean(t && (t.swarm_member_name || t.swarm_origin_coordinator_id || t.execution_backend === "swarm"));
+      }
+
+      function isLiveSwarmWorker(t) {
+        if (!t || !t.swarm_member_name) return false;
+        if (t.swarm_state === "killed") return false;
+        const activeCoord = state.swarm?.coordinatorConversationId || state.config?.coordinatorConversationId;
+        if (t.swarm_origin_coordinator_id && activeCoord && t.swarm_origin_coordinator_id !== activeCoord) return false;
+        return Boolean(t.swarm_state === "working" || t.swarm_state === "waiting" || t.execution_backend === "swarm");
+      }
+
+      function openSwitchModelDialog(thread) {
+        if (!thread) return;
+        document.getElementById("sm-thread-id").value = thread.thread_id;
+        document.getElementById("sm-target-label").textContent =
+          `@${thread.swarm_member_name || "worker"} — ${thread.title} (current: ${thread.swarm_model || "inherit"})`;
+        const sel = document.getElementById("sm-model");
+        const customInp = document.getElementById("sm-custom-model");
+        const curModel = thread.swarm_model || "inherit";
+        if (sel && Array.from(sel.options).some((o) => o.value === curModel)) {
+          sel.value = curModel;
+          if (customInp) customInp.value = "";
+        } else if (sel) {
+          sel.value = "inherit";
+          if (customInp) customInp.value = curModel !== "inherit" ? curModel : "";
+        }
+        openDialog("dlg-switch-model");
+      }
+
+      function openKillWorkerDialog(thread) {
+        if (!thread) return;
+        document.getElementById("kw-thread-id").value = thread.thread_id;
+        const wsNote =
+          thread.workspace_mode && thread.workspace_mode !== "inherit"
+            ? ` and permanently delete its isolated '${thread.workspace_mode}' workspace copy`
+            : "";
+        document.getElementById("kw-confirm-msg").textContent =
+          `Permanently kill Swarm worker @${thread.swarm_member_name || thread.title}${wsNote}? Killed workers cannot be revived.`;
+        openDialog("dlg-kill-worker");
+      }
+
+      function appendSwarmWorkerBadgeGroup(badgeGroup, t) {
+        if (!t) return;
+        if (String(t.thread_id || "").startsWith("swarm-")) {
+          const helperBadge = document.createElement("span");
+          helperBadge.className = "badge";
+          helperBadge.style.borderStyle = "dashed";
+          helperBadge.textContent = "Worker Helper";
+          badgeGroup.appendChild(helperBadge);
+        }
+        if (t.swarm_member_name) {
+          const mBadge = document.createElement("span");
+          mBadge.className = "badge mono";
+          mBadge.textContent = `@${t.swarm_member_name}`;
+          badgeGroup.appendChild(mBadge);
+        }
+        if (t.swarm_state) {
+          const sBadge = document.createElement("span");
+          sBadge.className = `badge ${t.swarm_state === "working" ? "ok" : t.swarm_state === "killed" ? "err" : ""}`;
+          sBadge.textContent = `Swarm: ${t.swarm_state}`;
+          badgeGroup.appendChild(sBadge);
+        }
+        if (t.swarm_model && t.swarm_model !== "inherit") {
+          const modBadge = document.createElement("span");
+          modBadge.className = "badge mono";
+          modBadge.textContent = t.swarm_model;
+          badgeGroup.appendChild(modBadge);
+        }
+        if (t.active_dispatch_id) {
+          const dispBadge = document.createElement("span");
+          dispBadge.className = "badge warn";
+          dispBadge.textContent = "Dispatching…";
+          badgeGroup.appendChild(dispBadge);
+        }
+      }
+
+      function appendSwarmWorkerActionButtons(container, t) {
+        if (!isLiveSwarmWorker(t)) return;
+        if (t.swarm_state === "waiting") {
+          const btnModel = document.createElement("button");
+          btnModel.type = "button";
+          btnModel.className = "small";
+          btnModel.textContent = "⇄ Model";
+          btnModel.addEventListener("click", () => openSwitchModelDialog(t));
+          container.appendChild(btnModel);
+        }
+        if (t.swarm_state === "working" || t.swarm_state === "waiting") {
+          const btnKill = document.createElement("button");
+          btnKill.type = "button";
+          btnKill.className = "danger small";
+          btnKill.textContent = "✕ Kill Worker";
+          btnKill.addEventListener("click", () => openKillWorkerDialog(t));
+          container.appendChild(btnKill);
+        }
+      }
+
+      async function loadThreadSwarmBoard(threadId, opts = {}) {
+        const sec = document.getElementById("td-swarm-board-section");
+        const list = document.getElementById("td-swarm-board-list");
+        if (!sec || !list || !threadId) return;
+        const thread = (state.threads || []).find((x) => x.thread_id === threadId);
+        if (!isSwarmThread(thread)) {
+          sec.hidden = true;
+          list.replaceChildren();
+          return;
+        }
+        sec.hidden = false;
+        const boardKey = `${threadId}:${Number(thread?.swarm_last_seq || 0)}:${String(thread?.swarm_state || "")}:${Number(state.swarm?.head || 0)}`;
+        if (!opts.force && lastLoadedBoardKey === boardKey && list.childElementCount > 0) {
+          return;
+        }
+        if (list.childElementCount === 0) {
+          const loading = document.createElement("div");
+          loading.className = "muted";
+          loading.textContent = "Loading Swarm board messages…";
+          list.replaceChildren(loading);
+        }
+        try {
+          const res = await api(`/api/swarm/thread-board?threadId=${encodeURIComponent(threadId)}&limit=100`);
+          if (inspectedThreadId !== threadId) return;
+          lastLoadedBoardKey = `${threadId}:${Number(thread?.swarm_last_seq || 0)}:${String(thread?.swarm_state || "")}:${Number(state.swarm?.head || 0)}`;
+          list.replaceChildren();
+          if (res?.unsupportedReason) {
+            const note = document.createElement("div");
+            note.className = "muted";
+            note.textContent = `Swarm board unavailable (${res.unsupportedReason}).`;
+            list.appendChild(note);
+            return;
+          }
+          const msgs = Array.isArray(res?.messages) ? res.messages : [];
+          if (msgs.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = "No Swarm board messages recorded for this worker yet.";
+            list.appendChild(empty);
+            return;
+          }
+          for (const m of msgs) {
+            const item = document.createElement("div");
+            item.className = "td-board-msg";
+            const hdr = document.createElement("div");
+            hdr.className = "muted mono";
+            hdr.textContent = `#${m.seq} • ${m.agent || "member"} • ${m.time || ""}`;
+            const txt = document.createElement("div");
+            txt.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px";
+            txt.textContent = String(m.text || "");
+            item.append(hdr, txt);
+            list.appendChild(item);
+          }
+        } catch (err) {
+          if (inspectedThreadId !== threadId) return;
+          list.replaceChildren();
+          const errDiv = document.createElement("div");
+          errDiv.className = "muted";
+          errDiv.textContent = `Could not load Swarm board: ${err.message || "error"}`;
+          list.appendChild(errDiv);
+        }
+      }
+
       function populateThreadDetailModal(thread) {
         if (!thread) return;
         inspectedThreadId = thread.thread_id;
@@ -2104,12 +2689,37 @@
         const metaLines = [
           `Thread ID: ${thread.thread_id} | Role: ${thread.role} | Bucket: ${thread.ui_bucket} (${thread.server_status})`,
           `Conversation: ${thread.conversation_id || "(Headless SDK / Pending)"} | Model: ${thread.model || "inherit"}`,
+          ...(thread.swarm_member_name || thread.execution_backend === "swarm"
+            ? [
+                `Swarm Member: @${thread.swarm_member_name || "(unassigned)"} | Swarm State: ${thread.swarm_state || "n/a"} | Swarm Model: ${thread.swarm_model || "inherit"}${thread.active_dispatch_id ? ` | Active Dispatch: ${thread.active_dispatch_id}` : ""}`
+              ]
+            : []),
           `Workspace Mode: ${thread.workspace_mode}${thread.branch_name ? ` | Branch: ${thread.branch_name}` : ""}`,
           ...(thread.worktree_path ? [`Worktree: ${thread.worktree_path}`] : []),
           ...(globs.length ? [`Owned Globs: ${globs.join(", ")}`] : []),
           `Estimated Tokens: ${(thread.token_usage_est || 0).toLocaleString()}`
         ];
         document.getElementById("td-meta").textContent = metaLines.join("\n");
+
+        const wtSection = document.getElementById("td-worktree-section");
+        const wtListEl = document.getElementById("td-worktree-list");
+        if (wtSection && wtListEl) {
+          const wtEntries =
+            thread.worktrees && typeof thread.worktrees === "object"
+              ? Object.values(thread.worktrees).filter((e) => e && e.worktreePath)
+              : [];
+          const hasRepos = Array.isArray(state.repositories) && state.repositories.length > 0;
+          const showWt = Boolean(thread.worktree_path || wtEntries.length > 0 || (hasRepos && thread.workspace_mode === "worktree"));
+          wtSection.hidden = !showWt;
+          if (showWt) {
+            const lines = wtEntries.length
+              ? wtEntries.map((e) => `${e.repoName || e.repoId}: ${e.worktreePath} (${e.branchName || ""})`)
+              : thread.worktree_path
+                ? [thread.worktree_path]
+                : ["No worktree materialized yet (click Inspect Status to check)."];
+            wtListEl.textContent = lines.join("\n");
+          }
+        }
 
         let telemetry = [];
         try {
@@ -2121,11 +2731,192 @@
           ? telemetry.map((ev) => `[${ev.at || ""}] (${ev.type || "event"}) ${ev.tool ? ev.tool + " " : ""}${ev.text || ev.args || ""}`.trim())
           : [thread.blocking_question || thread.last_summary || thread.description || "No telemetry events recorded yet."];
         document.getElementById("td-telemetry-code").textContent = telLines.join("\n");
+
+        const sec = document.getElementById("td-swarm-board-section");
+        if (sec) {
+          sec.hidden = !isSwarmThread(thread);
+          if (!sec.hidden && document.getElementById("dlg-thread-detail")?.open) {
+            loadThreadSwarmBoard(thread.thread_id).catch(() => {});
+          }
+        }
+
+        const isKilledSwarm = Boolean(thread?.swarm_member_name && thread.swarm_state === "killed");
+        const steerInput = document.getElementById("steer-input");
+        const steerBtn = document.getElementById("btn-submit-steer");
+        const steerHint = document.getElementById("steer-form-hint");
+        if (steerInput) steerInput.disabled = isKilledSwarm;
+        if (steerBtn) steerBtn.disabled = isKilledSwarm;
+        if (steerHint) {
+          steerHint.textContent = isKilledSwarm
+            ? `Worker @${thread.swarm_member_name} is killed and cannot be steered. Start a new thread to continue.`
+            : "Dispatches to the Swarm Coordinator board, Sidecar SDK, or headless worker.";
+          steerHint.style.color = isKilledSwarm ? "var(--ph-warn)" : "";
+        }
       }
 
       function openThreadDetailDialog(thread) {
+        lastLoadedBoardKey = "";
         populateThreadDetailModal(thread);
         openDialog("dlg-thread-detail");
+        loadThreadSwarmBoard(thread.thread_id, { force: true }).catch(() => {});
+      }
+
+      async function loadProjectSwarmBoard(opts = {}) {
+        const dlg = document.getElementById("dlg-swarm-board");
+        const sumEl = document.getElementById("sb-summary");
+        const rosterEl = document.getElementById("sb-roster");
+        const msgBox = document.getElementById("sb-messages");
+        if (!sumEl || !rosterEl || !msgBox) return;
+
+        const boardKey = `${state.activeProjectId || ""}:${swarmBoardMemberFilter}:${Number(state.swarm?.head || 0)}:${Number(state.swarm?.counts?.total || 0)}:${Number(state.swarm?.counts?.working || 0)}:${Number(state.swarm?.counts?.waiting || 0)}:${String(state.swarm?.unsupportedReason || "")}:${String(lastSeenVersion || "")}`;
+        if (!opts.force && lastLoadedProjectBoardKey === boardKey && msgBox.childElementCount > 0) {
+          return;
+        }
+        if (msgBox.childElementCount === 0) {
+          const loading = document.createElement("div");
+          loading.className = "muted";
+          loading.textContent = "Loading Swarm board & roster…";
+          msgBox.replaceChildren(loading);
+        }
+        try {
+          const params = new URLSearchParams({ limit: "150" });
+          if (swarmBoardMemberFilter) params.set("member", swarmBoardMemberFilter);
+          const data = await api(`/api/swarm/board?${params.toString()}`);
+          if (dlg && !dlg.open && !opts.force) return;
+          lastLoadedProjectBoardKey = `${state.activeProjectId || ""}:${swarmBoardMemberFilter}:${Number(data?.head || state.swarm?.head || 0)}:${Number(data?.counts?.total || 0)}:${Number(data?.counts?.working || 0)}:${Number(data?.counts?.waiting || 0)}:${String(data?.unsupportedReason || "")}:${String(lastSeenVersion || "")}`;
+
+          const wCount = Number(data?.counts?.working || 0);
+          const wtCount = Number(data?.counts?.waiting || 0);
+          const kCount = Number(data?.counts?.killed || 0);
+          const titleLabel = data?.title || "Swarm Board";
+          sumEl.textContent = data?.active
+            ? `${titleLabel} • Head #${Number(data?.head || 0)} • ${wCount} working • ${wtCount} waiting${kCount > 0 ? ` • ${kCount} killed` : ""}`
+            : (data?.unsupportedReason ? `Swarm disabled (${data.unsupportedReason})` : "No active Swarm yet");
+
+          rosterEl.replaceChildren();
+          const members = Array.isArray(data?.members) ? data.members : [];
+          const btnAll = document.createElement("button");
+          btnAll.type = "button";
+          btnAll.className = swarmBoardMemberFilter === "" ? "primary small" : "small";
+          btnAll.textContent = `All (${members.length})`;
+          btnAll.addEventListener("click", () => {
+            swarmBoardMemberFilter = "";
+            loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+          });
+          rosterEl.appendChild(btnAll);
+
+          for (const m of members) {
+            const chip = document.createElement("div");
+            chip.style.cssText = "display:inline-flex;align-items:center;gap:4px;border:1px solid var(--ph-border);border-radius:6px;padding:2px 6px;background:var(--ph-surface-2)";
+            const filterBtn = document.createElement("button");
+            filterBtn.type = "button";
+            filterBtn.className = swarmBoardMemberFilter === m.name ? "primary small" : "small";
+            filterBtn.textContent = `@${m.name}`;
+            filterBtn.addEventListener("click", () => {
+              swarmBoardMemberFilter = swarmBoardMemberFilter === m.name ? "" : m.name;
+              loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+            });
+            chip.appendChild(filterBtn);
+
+            const stBadge = document.createElement("span");
+            stBadge.className = `badge ${m.status === "working" ? "ok" : m.status === "killed" ? "err" : ""}`;
+            stBadge.textContent = m.status || "waiting";
+            chip.appendChild(stBadge);
+
+            if (m.model) {
+              const modBadge = document.createElement("span");
+              modBadge.className = "badge mono";
+              modBadge.textContent = m.model;
+              chip.appendChild(modBadge);
+            }
+            if (m.conversation_id) {
+              const chatBtn = document.createElement("button");
+              chatBtn.type = "button";
+              chatBtn.className = "small";
+              chatBtn.textContent = "Chat ↗";
+              chatBtn.addEventListener("click", () => openConversationInHost(m.conversation_id, `@${m.name}`));
+              chip.appendChild(chatBtn);
+            }
+            rosterEl.appendChild(chip);
+          }
+
+          msgBox.replaceChildren();
+          if (data?.unsupportedReason) {
+            const note = document.createElement("div");
+            note.className = "muted";
+            note.textContent = `Swarm board unavailable (${data.unsupportedReason}).`;
+            msgBox.appendChild(note);
+            return;
+          }
+          const msgs = Array.isArray(data?.messages) ? data.messages : [];
+          if (!data?.active && msgs.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = "No active Swarm yet for this project. Run a Suggested task or open Coordinator chat to start one.";
+            msgBox.appendChild(empty);
+            return;
+          }
+          if (msgs.length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "muted";
+            empty.textContent = swarmBoardMemberFilter
+              ? `No board messages matching @${swarmBoardMemberFilter}.`
+              : "No Swarm board messages recorded yet.";
+            msgBox.appendChild(empty);
+            return;
+          }
+          for (const msg of msgs) {
+            const item = document.createElement("div");
+            item.className = "td-board-msg";
+            const hdr = document.createElement("div");
+            hdr.className = "muted mono";
+            hdr.textContent = `#${msg.seq} • ${msg.agent || "member"} • ${msg.time || ""}`;
+            const txt = document.createElement("div");
+            txt.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;margin-top:2px";
+            txt.textContent = String(msg.text || "");
+            item.append(hdr, txt);
+            msgBox.appendChild(item);
+          }
+          if (opts.scrollToBottom) {
+            msgBox.scrollTop = msgBox.scrollHeight;
+          }
+        } catch (err) {
+          msgBox.replaceChildren();
+          const errDiv = document.createElement("div");
+          errDiv.className = "muted";
+          errDiv.textContent = `Could not load Swarm board: ${err.message || "error"}`;
+          msgBox.appendChild(errDiv);
+        }
+      }
+
+      function openSwarmBoardModal() {
+        if (!state.initialized || !state.config) return;
+        lastLoadedProjectBoardKey = "";
+        openDialog("dlg-swarm-board");
+        loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+      }
+
+      function computeSwarmStatusPill(st) {
+        const sw = st?.swarm;
+        const pd = Array.isArray(st?.dispatches)
+          ? st.dispatches.length
+          : (Array.isArray(sw?.pendingDispatches)
+              ? sw.pendingDispatches.length
+              : Number(sw?.pendingDispatches || 0));
+        if (!sw) return { hidden: true, className: "badge", text: "" };
+        if (sw.unsupportedReason === "remote_swarm") {
+          return { hidden: false, className: "badge warn", text: "Swarm: remote (readonly)" };
+        }
+        if (sw.active || (sw.counts && sw.counts.total > 0) || pd > 0) {
+          const w = Number(sw.counts?.working || 0);
+          const wt = Number(sw.counts?.waiting || 0);
+          return {
+            hidden: false,
+            className: `badge ${w > 0 ? "ok" : pd > 0 ? "warn" : ""}`,
+            text: `Swarm: ${w} working • ${wt} waiting${pd > 0 ? ` • ${pd} dispatching` : ""}`
+          };
+        }
+        return { hidden: true, className: "badge", text: "" };
       }
 
       function renderAll() {
@@ -2160,6 +2951,8 @@
           }
 
           const badge = document.getElementById("status-badge");
+          const swarmPill = document.getElementById("swarm-status-pill");
+          const btnSwarmBoard = document.getElementById("btn-open-swarm-board");
           const btnPause = document.getElementById("btn-pause-resume");
           const btnStar = document.getElementById("btn-star");
           const btnOpenCoord = document.getElementById("btn-open-coordinator");
@@ -2170,6 +2963,8 @@
               badge.textContent = "No Project";
               badge.className = "badge";
             }
+            if (swarmPill) swarmPill.hidden = true;
+            if (btnSwarmBoard) btnSwarmBoard.disabled = true;
             if (btnPause) btnPause.disabled = true;
             if (btnStar) btnStar.disabled = true;
             if (btnOpenCoord) btnOpenCoord.disabled = true;
@@ -2183,6 +2978,8 @@
             lastActiveProjectId = cfg.projectId;
             draftGoalText = null;
             selectedSuggestedIds.clear();
+            swarmBoardMemberFilter = "";
+            lastLoadedProjectBoardKey = "";
           }
           const welcomeEl = document.getElementById("overview-welcome-card");
           const dashEl = document.getElementById("overview-dashboard");
@@ -2191,14 +2988,22 @@
 
           if (btnPause) {
             btnPause.disabled = false;
-            btnPause.textContent = cfg.status === "active" ? "Pause" : "Resume";
+            btnPause.textContent =
+              cfg.status === "archived" ? "↺ Unarchive" : cfg.status === "active" ? "Pause" : "Resume";
           }
           if (btnStar) {
             btnStar.disabled = false;
             btnStar.textContent = cfg.starred ? "★" : "☆";
           }
           if (btnOpenCoord) btnOpenCoord.disabled = false;
+          if (btnSwarmBoard) btnSwarmBoard.disabled = false;
           if (btnRollover) btnRollover.disabled = false;
+          if (swarmPill) {
+            const pillState = computeSwarmStatusPill(state);
+            swarmPill.hidden = pillState.hidden;
+            swarmPill.className = pillState.className;
+            swarmPill.textContent = pillState.text;
+          }
           if (badge) {
             const statusLabel = cfg.status ? cfg.status.charAt(0).toUpperCase() + cfg.status.slice(1) : "Active";
             badge.textContent = statusLabel;
@@ -2225,6 +3030,10 @@
           if (detailDlg && detailDlg.open && inspectedThreadId) {
             const refreshedThread = threads.find((t) => t.thread_id === inspectedThreadId);
             if (refreshedThread) populateThreadDetailModal(refreshedThread);
+          }
+          const swarmBoardDlg = document.getElementById("dlg-swarm-board");
+          if (swarmBoardDlg && swarmBoardDlg.open) {
+            loadProjectSwarmBoard({ force: false }).catch(() => {});
           }
         } catch (err) {
           console.error("renderAll error:", err);
@@ -2480,7 +3289,7 @@
 
           for (const t of bThreads) {
             const row = document.createElement("div");
-            row.className = "thread-item";
+            row.className = String(t.thread_id || "").startsWith("swarm-") ? "thread-item swarm-helper" : "thread-item";
             const top = document.createElement("div");
             top.className = "row-between";
 
@@ -2536,6 +3345,7 @@
                 }
               }
             }
+            appendSwarmWorkerBadgeGroup(badgeGroup, t);
             const b = document.createElement("span");
             b.className = `badge ${bucketKey === "waiting_on_you" ? "warn" : bucketKey === "working" ? "ok" : ""}`;
             b.textContent = formatThreadRoleBadge(t);
@@ -2560,6 +3370,16 @@
               if (repoObj?.name) workMeta.appendChild(document.createTextNode(` • Repo: ${repoObj.name}`));
               if (t.branch_name) workMeta.appendChild(document.createTextNode(` • Branch: ${t.branch_name}`));
               row.appendChild(workMeta);
+            }
+
+            if (t.swarm_last_message || Number(t.swarm_last_seq || 0) > 0) {
+              const boardSnippet = document.createElement("div");
+              boardSnippet.className = "muted mono";
+              boardSnippet.style.cssText = "margin-top:4px;overflow-wrap:anywhere";
+              boardSnippet.textContent = t.swarm_last_message
+                ? `Board: ${t.swarm_last_message}`
+                : `Board seq #${t.swarm_last_seq}`;
+              row.appendChild(boardSnippet);
             }
 
             if (bucketKey === "waiting_on_you") {
@@ -2615,6 +3435,7 @@
                   btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
                   errActions.appendChild(btnOpen);
                 }
+                appendSwarmWorkerActionButtons(errActions, t);
                 row.appendChild(errActions);
               } else {
                 const replyRow = document.createElement("div");
@@ -2667,6 +3488,7 @@
                   btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
                   replyRow.appendChild(btnOpen);
                 }
+                appendSwarmWorkerActionButtons(replyRow, t);
                 row.appendChild(replyRow);
                 if (activeReplyTid && activeReplyTid === t.thread_id) {
                   queueMicrotask(() => {
@@ -2743,6 +3565,8 @@
                 btnOpen.addEventListener("click", () => openConversationInHost(t.conversation_id, t.title));
                 actions.appendChild(btnOpen);
               }
+
+              appendSwarmWorkerActionButtons(actions, t);
 
               if (bucketKey === "ready_for_review" || bucketKey === "landing" || bucketKey === "paused" || bucketKey === "idle") {
                 const btnRes = document.createElement("button");
@@ -2845,15 +3669,19 @@
         const repoById = new Map(repos.map((r) => [r.repo_id, r.name]));
         for (const t of filtered) {
           const el = document.createElement("div");
-          el.className = "thread-item";
+          el.className = String(t.thread_id || "").startsWith("swarm-") ? "thread-item swarm-helper" : "thread-item";
           const head = document.createElement("div");
           head.className = "row-between";
           const title = document.createElement("strong");
           title.textContent = t.title;
+          const badgesWrap = document.createElement("div");
+          badgesWrap.style.cssText = "display:flex;gap:4px;align-items:center;flex-wrap:wrap";
+          appendSwarmWorkerBadgeGroup(badgesWrap, t);
           const badge = document.createElement("span");
           badge.className = `badge ${t.ui_bucket === "working" ? "ok" : t.ui_bucket === "waiting_on_you" ? "warn" : ""}`;
           badge.textContent = `${t.role} • ${t.ui_bucket}`;
-          head.append(title, badge);
+          badgesWrap.appendChild(badge);
+          head.append(title, badgesWrap);
 
           const desc = document.createElement("div");
           desc.className = "muted";
@@ -2867,6 +3695,16 @@
           meta.textContent = `ID: ${t.thread_id} | Mode: ${t.workspace_mode}${repoLabel}${t.branch_name ? ` | Branch: ${t.branch_name}` : ""}`;
 
           el.append(head, desc, meta);
+
+          if (t.swarm_last_message || Number(t.swarm_last_seq || 0) > 0) {
+            const bLine = document.createElement("div");
+            bLine.className = "muted mono";
+            bLine.style.cssText = "margin-top:4px;overflow-wrap:anywhere";
+            bLine.textContent = t.swarm_last_message
+              ? `Board: ${t.swarm_last_message}`
+              : `Board seq #${t.swarm_last_seq}`;
+            el.appendChild(bLine);
+          }
 
           if (Array.isArray(t.live_telemetry) && t.live_telemetry.length > 0) {
             const lastEvt = t.live_telemetry[t.live_telemetry.length - 1];
@@ -2919,6 +3757,8 @@
           bInspect.textContent = "Inspect / Steer";
           bInspect.addEventListener("click", () => openThreadDetailDialog(t));
           bar.appendChild(bInspect);
+
+          appendSwarmWorkerActionButtons(bar, t);
 
           if (t.ui_bucket !== "resolved") {
             const bRes = document.createElement("button");
@@ -3310,12 +4150,6 @@
                 uriLink.style.cssText = "display:inline-block;margin-top:2px;color:var(--ph-accent);text-decoration:underline;cursor:pointer";
                 uriLink.addEventListener("click", async (ev) => {
                   ev.preventDefault();
-                  if (window.sidecar?.ui && typeof window.sidecar.ui.openUri === "function") {
-                    try {
-                      await window.sidecar.ui.openUri(pl.customizationUri);
-                      return;
-                    } catch {}
-                  }
                   try {
                     if (navigator.clipboard?.writeText) {
                       await navigator.clipboard.writeText(pl.customizationUri);
@@ -3346,8 +4180,10 @@
             p.textContent = "Diagnostics unavailable.";
             cList.appendChild(p);
           } else {
+            const bs = conn.builtinSwarm;
             const rows = [
               ["MCP Server", conn.mcpServer?.ok, conn.mcpServer?.label || "agy_projects_mcp"],
+              ["Built-in Swarm", bs?.ok, bs?.summary || (bs?.unsupportedReason ? `Disabled (${bs.unsupportedReason})` : "No active Swarm detected yet")],
               ["GitHub CLI (gh)", conn.githubCli?.ok, conn.githubCli?.summary || (conn.githubCli?.installed ? "Installed" : "Not found")],
               ["Google Drive Skill", conn.googleDrive?.ok, conn.googleDrive?.ok ? "gdrive SKILL.md available" : "gdrive plugin not installed"],
               ["Contextual RAG Python Env", conn.ragVenv?.ok, conn.ragVenv?.pythonPath || "Not ready"],
@@ -3418,7 +4254,12 @@
         setIfIdle("set-max-daily", cfg.orchestration?.maxNewThreadsPerDay ?? 200);
         setIfIdle("set-idle-days", cfg.orchestration?.idleAutoResolveDays ?? 7);
         setIfIdle("set-ws-mode", cfg.orchestration?.defaultWorkspaceMode || "share");
+        setIfIdle("set-exec-engine", cfg.orchestration?.executionEngine || "swarm");
+        setIfIdle("set-claim-ttl", cfg.orchestration?.dispatchClaimTtlSeconds ?? 600);
+        setIfIdle("set-match-ttl", cfg.orchestration?.dispatchMatchTtlSeconds ?? 300);
         document.getElementById("set-require-approval").checked = cfg.orchestration?.requireApprovalBeforeSpawn !== false;
+        const autoMonEl = document.getElementById("set-auto-swarm-monitor");
+        if (autoMonEl) autoMonEl.checked = cfg.orchestration?.autoSpawnSwarmMonitor === true;
 
         const btnSetPause = document.getElementById("btn-set-pause-resume");
         if (btnSetPause) {
@@ -3443,6 +4284,7 @@
         document.getElementById("inst-counter").textContent = `${(cfg.instructions || "").length.toLocaleString()} / 16,000`;
         document.getElementById("set-acct-mem").checked = Boolean(cfg.memory?.useAccountMemory);
         setIfIdle("set-max-mem-lines", cfg.memory?.maxIndexLines ?? 200);
+        setIfIdle("set-max-mem-chars", cfg.memory?.maxIndexChars ?? 16000);
         setIfIdle("set-pin-threshold", cfg.memory?.autoPinLibraryTokenThreshold ?? 15000);
         setIfIdle("set-emb-provider", cfg.memory?.embeddingProvider);
         setIfIdle("set-cloud-model", cfg.memory?.cloudEmbeddingModel);
@@ -3477,6 +4319,12 @@
           const s = document.createElement("strong");
           s.textContent = `${r.name} (${r.cron_expr})`;
           titleRow.appendChild(s);
+          if (!r.enabled) {
+            const disBadge = document.createElement("span");
+            disBadge.className = "badge";
+            disBadge.textContent = "Disabled";
+            titleRow.appendChild(disBadge);
+          }
           if (r.last_error) {
             const errBadge = document.createElement("span");
             errBadge.className = "badge err";
@@ -3485,7 +4333,7 @@
           }
           const m = document.createElement("div");
           m.className = "muted mono";
-          m.textContent = `Role: ${r.target_role} • Next: ${r.next_run_at || "disabled"}`;
+          m.textContent = `Role: ${r.target_role} • Mode: ${r.workspace_mode || "share"} • Next: ${r.enabled ? (r.next_run_at || "scheduled") : "disabled"}`;
           txt.append(titleRow, m);
           if (r.last_error) {
             const errLine = document.createElement("div");
@@ -3497,7 +4345,7 @@
           }
 
           const btns = document.createElement("div");
-          btns.style.cssText = "display:flex;gap:6px";
+          btns.style.cssText = "display:flex;gap:6px;flex-wrap:wrap";
           const bRun = document.createElement("button");
           bRun.type = "button";
           bRun.className = "small";
@@ -3509,6 +4357,40 @@
               await refreshState();
             } catch (e) { showToast(e.message, true); }
           });
+          const bToggle = document.createElement("button");
+          bToggle.type = "button";
+          bToggle.className = "small";
+          bToggle.textContent = r.enabled ? "Disable" : "Enable";
+          bToggle.addEventListener("click", async () => {
+            try {
+              await api("/api/routines/upsert", {
+                routineId: r.routine_id,
+                name: r.name,
+                cronExpr: r.cron_expr,
+                targetRole: r.target_role,
+                workspaceMode: r.workspace_mode || "share",
+                prompt: r.prompt,
+                enabled: !r.enabled
+              });
+              showToast(r.enabled ? `Disabled ${r.name}` : `Enabled ${r.name}`);
+              await refreshState();
+            } catch (e) { showToast(e.message, true); }
+          });
+          const bEdit = document.createElement("button");
+          bEdit.type = "button";
+          bEdit.className = "small";
+          bEdit.textContent = "Edit";
+          bEdit.addEventListener("click", () => {
+            document.getElementById("dlg-rt-title").textContent = "Edit Scheduled Cron Routine";
+            document.getElementById("rt-id").value = r.routine_id;
+            document.getElementById("rt-name").value = r.name || "";
+            document.getElementById("rt-cron").value = r.cron_expr || "0 9 * * 1-5";
+            document.getElementById("rt-role").value = r.target_role || "explorer";
+            document.getElementById("rt-ws-mode").value = r.workspace_mode || "share";
+            document.getElementById("rt-enabled").checked = Boolean(r.enabled);
+            document.getElementById("rt-prompt").value = r.prompt || "";
+            openDialog("dlg-routine");
+          });
           const bDel = document.createElement("button");
           bDel.type = "button";
           bDel.className = "danger small";
@@ -3519,7 +4401,7 @@
               await refreshState();
             } catch (e) { showToast(e.message, true); }
           });
-          btns.append(bRun, bDel);
+          btns.append(bRun, bToggle, bEdit, bDel);
           div.append(txt, btns);
           rList.appendChild(div);
         }
@@ -3670,6 +4552,7 @@
       onId("ov-goal-input", "blur", () => syncGoalSaveVisibility());
 
       onId("btn-ov-new-task", "click", () => {
+        populateProposeRepoSelect();
         openDialog("dlg-propose-thread");
       });
 
@@ -3691,16 +4574,52 @@
       });
 
       async function toggleProjectPauseResume() {
-        if (!state.config || state.config.status === "archived") return;
+        if (!state.config) return;
+        const wasArchived = state.config.status === "archived";
         const next = state.config.status === "active" ? "paused" : "active";
         try {
           await api("/api/projects/lifecycle", { status: next });
-          showToast(`Project ${next}`);
+          showToast(wasArchived ? "Project unarchived" : `Project ${next}`);
           await refreshState();
         } catch (err) { showToast(err.message, true); }
       }
       onId("btn-pause-resume", "click", toggleProjectPauseResume);
       onId("btn-set-pause-resume", "click", toggleProjectPauseResume);
+
+      onId("btn-td-wt-status", "click", async () => {
+        const tid = document.getElementById("steer-thread-id")?.value;
+        if (!tid) return;
+        try {
+          const res = await api("/api/worktrees/action", { action: "status", threadId: tid });
+          const wtListEl = document.getElementById("td-worktree-list");
+          if (wtListEl) {
+            const entries =
+              res.worktrees && typeof res.worktrees === "object"
+                ? Object.values(res.worktrees).filter((e) => e && e.worktreePath)
+                : [];
+            if (entries.length > 0) {
+              wtListEl.textContent = entries
+                .map((e) => `${e.repoName || e.repoId}: ${e.worktreePath} (${e.branchName || ""})`)
+                .join("\n");
+            } else {
+              wtListEl.textContent = `${res.exists ? "Active" : "Missing"}: ${res.worktreePath} (${res.branchName || ""})`;
+            }
+          }
+          showToast(res.exists ? "Worktree exists on disk" : "Worktree not materialized on disk");
+        } catch (err) { showToast(err.message, true); }
+      });
+
+      onId("btn-td-wt-cleanup", "click", async () => {
+        const tid = document.getElementById("steer-thread-id")?.value;
+        if (!tid) return;
+        try {
+          await api("/api/worktrees/action", { action: "cleanup", threadId: tid });
+          showToast("Worktree cleaned up");
+          await refreshState();
+          const updated = (state.threads || []).find((x) => x.thread_id === tid);
+          if (updated) openThreadDetail(updated);
+        } catch (err) { showToast(err.message, true); }
+      });
 
       onId("btn-archive-project", "click", async () => {
         if (!state.config) return;
@@ -3715,6 +4634,18 @@
       onId("btn-new-project", "click", openNewProjectDialog);
 
       onId("btn-open-coordinator", "click", openCoordinatorChat);
+      onId("btn-open-swarm-board", "click", openSwarmBoardModal);
+      onId("swarm-status-pill", "click", openSwarmBoardModal);
+      onId("swarm-status-pill", "keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openSwarmBoardModal();
+        }
+      });
+      onId("btn-sb-refresh", "click", () => {
+        loadProjectSwarmBoard({ force: true, scrollToBottom: true }).catch(() => {});
+      });
+      onId("btn-sb-focus-coord", "click", openCoordinatorChat);
 
       onId("btn-rollover-coordinator", "click", () => {
         if (!state.config) return;
@@ -3724,22 +4655,54 @@
         openDialog("dlg-rollover");
       });
 
-      registerFormHandler("form-rollover", async () => {
-        const summary = document.getElementById("ro-summary").value.trim();
-        let newConvId = document.getElementById("ro-new-conv").value.trim();
-        if (!newConvId && window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
-          try {
-            const handoff = state.wrapupCheckpoint
-              ? `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}.\n\n${state.wrapupCheckpoint}`
-              : `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}. Call get_project_overview first.`;
-            const started = await window.sidecar.agent.startConversation(handoff, `${state.config.name} Coordinator`);
-            newConvId = started?.conversationId || started?.response?.conversationId || "";
-          } catch {}
+      async function submitRolloverCoordinator({ summary, newConvId }) {
+        const trimmedSummary = String(summary || "").trim();
+        let nextConvId = String(newConvId || "").trim();
+        if (nextConvId) {
+          await api("/api/projects/rollover", {
+            newConversationId: nextConvId,
+            summary: trimmedSummary
+          });
+          return nextConvId;
         }
         await api("/api/projects/rollover", {
-          ...(newConvId ? { newConversationId: newConvId } : {}),
-          summary
+          summary: trimmedSummary
         });
+        if (state.config?.status === "active") {
+          try {
+            const ensureRes = await api("/api/coordinator/ensure", {
+              projectId: state.config.projectId,
+              autoSpawn: true
+            });
+            nextConvId = ensureRes?.coordinatorConversationId || "";
+          } catch {}
+          if (!nextConvId && window.sidecar?.agent && typeof window.sidecar.agent.startConversation === "function") {
+            try {
+              const handoff = state.wrapupCheckpoint
+                ? `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}.\n\n${state.wrapupCheckpoint}`
+                : `Continue as Coordinator for "${state.config.name}" in ${state.workspacePath}. Call get_project_overview first.`;
+              const started = await window.sidecar.agent.startConversation(handoff, `${state.config.name} Coordinator`);
+              nextConvId =
+                started?.conversationId ||
+                started?.response?.conversationId ||
+                started?.response?.newConversation?.conversationId ||
+                "";
+              if (nextConvId) {
+                await api("/api/projects/select", {
+                  projectId: state.config.projectId,
+                  bindCoordinatorConversationId: nextConvId
+                });
+              }
+            } catch {}
+          }
+        }
+        return nextConvId;
+      }
+
+      registerFormHandler("form-rollover", async () => {
+        const summary = document.getElementById("ro-summary").value.trim();
+        const manualNewConvId = document.getElementById("ro-new-conv").value.trim();
+        const newConvId = await submitRolloverCoordinator({ summary, newConvId: manualNewConvId });
         closeDialog("dlg-rollover");
         document.getElementById("ro-summary").value = "";
         document.getElementById("ro-new-conv").value = "";
@@ -3751,6 +4714,44 @@
       onId("btn-td-open-conv", "click", () => {
         const t = (state.threads || []).find((x) => x.thread_id === inspectedThreadId);
         if (t?.conversation_id) openConversationInHost(t.conversation_id, t.title);
+      });
+
+      onId("btn-td-refresh-board", "click", () => {
+        if (inspectedThreadId) loadThreadSwarmBoard(inspectedThreadId, { force: true }).catch(() => {});
+      });
+
+      registerFormHandler("form-switch-model", async () => {
+        const threadId = document.getElementById("sm-thread-id").value;
+        const customModel = document.getElementById("sm-custom-model").value.trim();
+        const model = customModel || document.getElementById("sm-model").value;
+        const res = await api("/api/threads/action", {
+          action: "switch_model",
+          threadId,
+          model
+        });
+        document.getElementById("sm-custom-model").value = "";
+        closeDialog("dlg-switch-model");
+        if (res?.relayTimedOut) {
+          showToast(`Model switch queued (${model}; Coordinator relay timed out)`, true);
+        } else {
+          showToast(`Dispatched Swarm model switch to ${model}`);
+        }
+        await refreshState();
+      });
+
+      registerFormHandler("form-kill-worker", async () => {
+        const threadId = document.getElementById("kw-thread-id").value;
+        const res = await api("/api/threads/action", {
+          action: "kill_swarm_worker",
+          threadId
+        });
+        closeDialog("dlg-kill-worker");
+        if (res?.relayTimedOut) {
+          showToast("Kill worker queued (Coordinator relay timed out)", true);
+        } else {
+          showToast("Kill Swarm worker dispatched to Coordinator");
+        }
+        await refreshState();
       });
 
       onId("steer-input", "keydown", (e) => {
@@ -3781,18 +4782,78 @@
         } catch (err) { showToast(err.message, true); }
       });
 
+      function populateProposeRepoSelect() {
+        const sel = document.getElementById("pt-repo");
+        if (!sel) return;
+        const prev = sel.value;
+        sel.replaceChildren();
+        const defOpt = document.createElement("option");
+        defOpt.value = "";
+        defOpt.textContent = "Default / Any Repo";
+        sel.appendChild(defOpt);
+        for (const r of state.repositories || []) {
+          const opt = document.createElement("option");
+          opt.value = r.repo_id;
+          opt.textContent = `${r.name} (${r.default_branch || "main"})`;
+          sel.appendChild(opt);
+        }
+        sel.value = Array.from(sel.options).some((o) => o.value === prev) ? prev : "";
+      }
+
       onId("btn-propose-thread", "click", () => {
+        populateProposeRepoSelect();
         openDialog("dlg-propose-thread");
       });
 
+      function buildNewTaskProposalPayload({ title, role, description, selectedModel, workspaceMode, repoId, ownedGlobsText }) {
+        const ntModel = String(selectedModel || "inherit").trim() || "inherit";
+        const isLegacyAlias = ntModel === "pro" || ntModel === "flash" || ntModel === "flash_lite";
+        const payload = {
+          title: String(title || "").trim(),
+          role,
+          description: String(description || "").trim()
+        };
+        if (workspaceMode) payload.workspaceMode = String(workspaceMode).trim();
+        if (repoId) payload.repoId = String(repoId).trim();
+        const globs = String(ownedGlobsText || "")
+          .split(/[,\n]+/)
+          .map((g) => g.trim())
+          .filter(Boolean);
+        if (globs.length > 0) payload.ownedGlobs = globs;
+        if (ntModel !== "inherit") {
+          if (isLegacyAlias) {
+            payload.model = ntModel;
+            if (shouldDispatchViaSwarmUi()) payload.swarmModel = ntModel;
+          } else {
+            payload.swarmModel = ntModel;
+          }
+        }
+        return payload;
+      }
+
       registerFormHandler("form-propose-thread", async () => {
-        await api("/api/threads/propose", {
-          proposals: [{
-            title: document.getElementById("pt-title").value.trim(),
-            role: document.getElementById("pt-role").value,
-            description: document.getElementById("pt-desc").value.trim()
-          }]
+        const ntModelEl = document.getElementById("nt-model");
+        const wsModeEl = document.getElementById("pt-ws-mode");
+        const repoEl = document.getElementById("pt-repo");
+        const globsEl = document.getElementById("pt-owned-globs");
+        const proposal = buildNewTaskProposalPayload({
+          title: document.getElementById("pt-title").value,
+          role: document.getElementById("pt-role").value,
+          description: document.getElementById("pt-desc").value,
+          selectedModel: ntModelEl ? ntModelEl.value : "inherit",
+          workspaceMode: wsModeEl ? wsModeEl.value : "",
+          repoId: repoEl ? repoEl.value : "",
+          ownedGlobsText: globsEl ? globsEl.value : ""
         });
+        await api("/api/threads/propose", {
+          proposals: [proposal]
+        });
+        document.getElementById("pt-title").value = "";
+        document.getElementById("pt-desc").value = "";
+        if (ntModelEl) ntModelEl.value = "inherit";
+        if (wsModeEl) wsModeEl.value = "";
+        if (repoEl) repoEl.value = "";
+        if (globsEl) globsEl.value = "";
         closeDialog("dlg-propose-thread");
         showToast("Thread added to Suggested");
         await refreshState();
@@ -3814,7 +4875,10 @@
         if (entry.name === ".git" || entry.name === "node_modules") return;
         if (entry.isFile) {
           const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
-          if (file) outFiles.push(file);
+          if (file) {
+            const rel = String(entry.fullPath || file.webkitRelativePath || file.name || "").replace(/^\/+/, "");
+            outFiles.push({ file, relativePath: rel || file.name });
+          }
         } else if (entry.isDirectory) {
           const children = await readAllDirectoryEntries(entry.createReader());
           for (const child of children) {
@@ -3861,7 +4925,10 @@
       async function handleFiles(fileList) {
         if (!fileList || fileList.length === 0) return;
         const allowLargeLocal = Boolean(document.getElementById("chk-allow-large-local")?.checked);
-        for (const file of fileList) {
+        for (const item of fileList) {
+          const file = item && item.file ? item.file : item;
+          if (!file) continue;
+          const relName = String((item && item.relativePath) || file.webkitRelativePath || file.name || "").replace(/^\/+/, "");
           try {
             const buf = await file.arrayBuffer();
             const bytes = new Uint8Array(buf);
@@ -3870,13 +4937,14 @@
               binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
             }
             await api("/api/library/upload", {
-              filename: file.name,
+              filename: relName || file.name,
+              relativePath: relName || undefined,
               base64Content: btoa(binary),
               category: "input",
               sourceType: "upload",
               allowLargeLocal
             });
-            showToast(`Ingested ${file.name}`);
+            showToast(`Ingested ${relName || file.name}`);
           } catch (err) {
             showToast(err.message, true);
           }
@@ -4118,6 +5186,29 @@
           .filter(Boolean);
         const setupCmdVal = document.getElementById("set-setup-cmd").value.trim();
         const existingOverrides = state.config?.models?.roleOverrides || {};
+        const nextRoleOverrides = {};
+        for (const [k, v] of Object.entries(existingOverrides)) {
+          if (k === "explorer" || k === "implementer" || k === "verifier" || k === "pr-fixer" || k === "pr_fixer") continue;
+          const trimmed = typeof v === "string" ? v.trim() : "";
+          if (trimmed && trimmed !== "inherit") nextRoleOverrides[k] = trimmed;
+        }
+        const uiRoleSelects = [
+          ["explorer", "set-role-explorer"],
+          ["implementer", "set-role-implementer"],
+          ["verifier", "set-role-verifier"],
+          ["pr-fixer", "set-role-pr-fixer"]
+        ];
+        for (const [roleKey, elId] of uiRoleSelects) {
+          const val = String(document.getElementById(elId).value || "").trim();
+          if (val && val !== "inherit") {
+            nextRoleOverrides[roleKey] = val;
+          } else if (
+            Object.prototype.hasOwnProperty.call(existingOverrides, roleKey) ||
+            (roleKey === "pr-fixer" && Object.prototype.hasOwnProperty.call(existingOverrides, "pr_fixer"))
+          ) {
+            nextRoleOverrides[roleKey] = null;
+          }
+        }
         await api("/api/settings/update", {
           name: document.getElementById("set-name").value.trim(),
           goal: document.getElementById("set-goal").value.trim(),
@@ -4125,24 +5216,23 @@
           models: {
             coordinatorModel: document.getElementById("set-coordinator-model").value,
             defaultThreadModel: document.getElementById("set-default-model").value,
-            roleOverrides: {
-              ...existingOverrides,
-              explorer: document.getElementById("set-role-explorer").value,
-              implementer: document.getElementById("set-role-implementer").value,
-              verifier: document.getElementById("set-role-verifier").value,
-              "pr-fixer": document.getElementById("set-role-pr-fixer").value
-            }
+            roleOverrides: nextRoleOverrides
           },
           orchestration: {
             maxConcurrentThreads: Number(document.getElementById("set-max-threads").value) || 5,
             maxNewThreadsPerDay: Number(document.getElementById("set-max-daily").value) || 200,
             idleAutoResolveDays: Number(document.getElementById("set-idle-days").value) || 7,
             defaultWorkspaceMode: document.getElementById("set-ws-mode").value,
-            requireApprovalBeforeSpawn: document.getElementById("set-require-approval").checked
+            executionEngine: document.getElementById("set-exec-engine")?.value || "swarm",
+            dispatchClaimTtlSeconds: Number(document.getElementById("set-claim-ttl")?.value) || 600,
+            dispatchMatchTtlSeconds: Number(document.getElementById("set-match-ttl")?.value) || 300,
+            requireApprovalBeforeSpawn: document.getElementById("set-require-approval").checked,
+            autoSpawnSwarmMonitor: Boolean(document.getElementById("set-auto-swarm-monitor")?.checked)
           },
           memory: {
             useAccountMemory: document.getElementById("set-acct-mem").checked,
             maxIndexLines: Number(document.getElementById("set-max-mem-lines").value) || 200,
+            maxIndexChars: Number(document.getElementById("set-max-mem-chars")?.value) || 16000,
             autoPinLibraryTokenThreshold: Number(document.getElementById("set-pin-threshold").value) || 15000,
             embeddingProvider: document.getElementById("set-emb-provider").value,
             cloudEmbeddingModel: document.getElementById("set-cloud-model").value,
@@ -4208,16 +5298,29 @@
       });
 
       onId("btn-new-routine", "click", () => {
+        document.getElementById("dlg-rt-title").textContent = "Add Scheduled Cron Routine";
+        document.getElementById("rt-id").value = "";
+        document.getElementById("rt-name").value = "";
+        document.getElementById("rt-cron").value = "0 9 * * 1-5";
+        document.getElementById("rt-role").value = "explorer";
+        document.getElementById("rt-ws-mode").value = "share";
+        document.getElementById("rt-enabled").checked = true;
+        document.getElementById("rt-prompt").value = "";
         openDialog("dlg-routine");
       });
 
       registerFormHandler("form-routine", async () => {
+        const rid = document.getElementById("rt-id")?.value?.trim() || "";
         await api("/api/routines/upsert", {
+          ...(rid ? { routineId: rid } : {}),
           name: document.getElementById("rt-name").value.trim(),
           cronExpr: document.getElementById("rt-cron").value.trim(),
           targetRole: document.getElementById("rt-role").value,
+          workspaceMode: document.getElementById("rt-ws-mode")?.value || "share",
+          enabled: document.getElementById("rt-enabled") ? document.getElementById("rt-enabled").checked : true,
           prompt: document.getElementById("rt-prompt").value.trim()
         });
+        document.getElementById("rt-id").value = "";
         closeDialog("dlg-routine");
         showToast("Routine saved");
         await refreshState();
@@ -4259,22 +5362,97 @@
         }
       }
 
+      const pinnedUrlWs = (new URLSearchParams(window.location.search).get("workspacePath") || "").trim() || null;
+      let sseSource = null;
+      let sseConnected = false;
+      let sseReconnectTimer = null;
+      let sseReconnectDelayMs = 1000;
+      let sseTargetWorkspacePath = pinnedUrlWs;
+      let lastSseEventAt = 0;
+      let lastSafetyPollAt = 0;
+
+      function closeStateSse() {
+        if (sseReconnectTimer) {
+          clearTimeout(sseReconnectTimer);
+          sseReconnectTimer = null;
+        }
+        if (sseSource) {
+          try { sseSource.close(); } catch {}
+          sseSource = null;
+        }
+        sseConnected = false;
+      }
+
+      function applySnapshotData(data) {
+        if (!data || typeof data !== "object") return;
+        if (data.version) {
+          lastSeenVersion = String(data.version);
+        }
+        checkUiAssetHotReload(data.uiAssetMtimeMs);
+        if (data.unchanged) return;
+        state = data;
+        renderAll();
+      }
+
+      function connectStateSse(targetWs) {
+        if (typeof EventSource !== "function") return;
+        closeStateSse();
+        const wsParam = targetWs !== undefined ? targetWs : pinnedUrlWs;
+        sseTargetWorkspacePath = wsParam || null;
+        const qs = new URLSearchParams();
+        if (sidecarToken) qs.set("token", sidecarToken);
+        if (wsParam) qs.set("workspacePath", wsParam);
+        const url = qs.toString() ? `/api/events?${qs.toString()}` : "/api/events";
+        try {
+          const es = new EventSource(url);
+          sseSource = es;
+          es.addEventListener("open", () => {
+            if (sseSource !== es) return;
+            sseConnected = true;
+            sseReconnectDelayMs = 1000;
+            lastSseEventAt = Date.now();
+          });
+          es.addEventListener("snapshot", (ev) => {
+            if (sseSource !== es) return;
+            sseConnected = true;
+            sseReconnectDelayMs = 1000;
+            lastSseEventAt = Date.now();
+            try {
+              const snap = JSON.parse(ev.data);
+              applySnapshotData(snap);
+            } catch {}
+          });
+          es.addEventListener("error", () => {
+            if (sseSource !== es) return;
+            sseConnected = false;
+            try { es.close(); } catch {}
+            sseSource = null;
+            const delay = sseReconnectDelayMs;
+            sseReconnectDelayMs = Math.min(sseReconnectDelayMs * 2, 15000);
+            sseReconnectTimer = setTimeout(async () => {
+              sseReconnectTimer = null;
+              if (document.visibilityState === "hidden") return;
+              try {
+                await refreshSidecarToken();
+              } catch {}
+              connectStateSse(sseTargetWorkspacePath);
+            }, delay);
+          });
+        } catch {
+          sseConnected = false;
+        }
+      }
+
       async function refreshState(incremental) {
         if (incremental && pollInFlight) return;
         if (incremental) pollInFlight = true;
         try {
-          const pathWithQuery =
-            incremental && lastSeenVersion
-              ? `/api/state?sinceVersion=${encodeURIComponent(lastSeenVersion)}`
-              : "/api/state";
+          const qs = new URLSearchParams();
+          if (incremental && lastSeenVersion) qs.set("sinceVersion", lastSeenVersion);
+          if (pinnedUrlWs) qs.set("workspacePath", pinnedUrlWs);
+          const pathWithQuery = qs.toString() ? `/api/state?${qs.toString()}` : "/api/state";
           const data = await api(pathWithQuery);
-          if (data && data.version) {
-            lastSeenVersion = String(data.version);
-          }
-          checkUiAssetHotReload(data?.uiAssetMtimeMs);
-          if (data && data.unchanged) return;
-          state = data;
-          renderAll();
+          applySnapshotData(data);
         } catch (err) {
           if (!incremental) showToast(err.message, true);
         } finally {
@@ -4284,10 +5462,20 @@
 
       // Render immediately so the Welcome Card & buttons are interactive before any network call completes
       renderAll();
-      refreshState(false).catch(() => {});
+      refreshState(false)
+        .catch(() => {})
+        .finally(() => {
+          if (!sseSource) connectStateSse(pinnedUrlWs);
+        });
 
+      // Fallback polling: 1.5s when SSE is unavailable/disconnected; slow 15s safety check while SSE is live
       setInterval(() => {
         if (document.visibilityState === "hidden") return;
+        const nowMs = Date.now();
+        if (sseConnected) {
+          if (nowMs - Math.max(lastSseEventAt, lastSafetyPollAt) < 15000) return;
+          lastSafetyPollAt = nowMs;
+        }
         refreshState(true).catch(() => {});
       }, 1500);
 
@@ -4304,9 +5492,17 @@
 
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
-          refreshState(true).catch(() => {});
+          if (!sseConnected && !sseSource) {
+            connectStateSse(pinnedUrlWs);
+          }
+          if (!sseConnected) {
+            refreshState(true).catch(() => {});
+          }
         }
       });
+
+      window.addEventListener("beforeunload", closeStateSse);
+      window.addEventListener("pagehide", closeStateSse);
     })();
   </script>
 </body>
