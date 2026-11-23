@@ -1626,20 +1626,60 @@ function resolveSessionBinding(conversationId, workspacePaths = []) {
 }
 
 function resolveActiveWorkspace(explicitWorkspacePath, explicitProjectId) {
-  if (explicitWorkspacePath && hasProjectInitialized(explicitWorkspacePath)) {
-    return path.resolve(explicitWorkspacePath);
+  const trimmedWs =
+    explicitWorkspacePath !== undefined && explicitWorkspacePath !== null
+      ? String(explicitWorkspacePath).trim()
+      : "";
+  const trimmedPid =
+    explicitProjectId !== undefined && explicitProjectId !== null
+      ? String(explicitProjectId).trim()
+      : "";
+  if (trimmedWs) {
+    const absWs = path.resolve(trimmedWs);
+    if (!hasProjectInitialized(absWs)) {
+      const err = new Error(
+        `Explicit workspacePath '${absWs}' is not an initialized AGY Project. Initialize it first with create_project({ name, workspacePath }) or pass a valid project workspacePath.`
+      );
+      err.statusCode = 400;
+      err.code = "UNINITIALIZED_WORKSPACE";
+      throw err;
+    }
+    if (trimmedPid) {
+      const cfg = loadProjectConfig(absWs);
+      const reg = loadRegistry();
+      const regEntry = reg.projects.find((p) => p.projectId === trimmedPid);
+      const matchesCfg = cfg?.projectId === trimmedPid;
+      const matchesReg = Boolean(regEntry && path.resolve(regEntry.workspacePath) === absWs);
+      if (!matchesCfg && !matchesReg) {
+        const err = new Error(
+          `Explicit projectId '${trimmedPid}' does not match initialized AGY Project at workspacePath '${absWs}' (projectId '${cfg?.projectId || "unknown"}').`
+        );
+        err.statusCode = 400;
+        err.code = "PROJECT_WORKSPACE_MISMATCH";
+        throw err;
+      }
+    }
+    return absWs;
   }
   const reg = loadRegistry();
-  if (explicitProjectId) {
-    const found = reg.projects.find((p) => p.projectId === explicitProjectId);
-    if (found && hasProjectInitialized(found.workspacePath)) return path.resolve(found.workspacePath);
+  if (trimmedPid) {
+    const found = reg.projects.find((p) => p.projectId === trimmedPid);
+    if (found && hasProjectInitialized(found.workspacePath)) {
+      return path.resolve(found.workspacePath);
+    }
+    const err = new Error(
+      `Explicit projectId '${trimmedPid}' does not match an initialized AGY Project.`
+    );
+    err.statusCode = 400;
+    err.code = "INVALID_PROJECT_ID";
+    throw err;
   }
   if (reg.activeProjectId) {
     const active = reg.projects.find((p) => p.projectId === reg.activeProjectId);
     if (active && hasProjectInitialized(active.workspacePath)) return path.resolve(active.workspacePath);
   }
   const firstValid = reg.projects.find((p) => hasProjectInitialized(p.workspacePath));
-  return firstValid ? path.resolve(firstValid.workspacePath) : (explicitWorkspacePath ? path.resolve(explicitWorkspacePath) : null);
+  return firstValid ? path.resolve(firstValid.workspacePath) : null;
 }
 
 // ---------- Memory Management (<=200 lines & <=16k chars hard guard) ----------

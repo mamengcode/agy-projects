@@ -1236,7 +1236,23 @@ const server = http.createServer(async (req, res) => {
       const args = ["new-conversation"];
       if (body.title) args.push("--title", String(body.title));
       args.push(message);
-      const activeWs = body.workspacePath || db.resolveActiveWorkspace(undefined, body.projectId);
+      const hasExplicitWs =
+        body.workspacePath !== undefined &&
+        body.workspacePath !== null &&
+        String(body.workspacePath).trim() !== "";
+      let activeWs = null;
+      if (hasExplicitWs) {
+        activeWs = db.resolveActiveWorkspace(body.workspacePath);
+      } else {
+        const rawPid = body.projectId !== undefined && body.projectId !== null ? String(body.projectId).trim() : "";
+        if (rawPid) {
+          const reg = db.loadRegistry();
+          const matched = reg.projects.find((p) => p.projectId === rawPid && db.hasProjectInitialized(p.workspacePath));
+          activeWs = matched ? path.resolve(matched.workspacePath) : db.resolveActiveWorkspace();
+        } else {
+          activeWs = db.resolveActiveWorkspace();
+        }
+      }
       const out = await runAgentApi(args, body.projectId, activeWs ? { cwd: activeWs } : {});
       if (out && out.ok && !out.conversationId) {
         const extractedId = extractNewConversationId(out);
@@ -1247,6 +1263,11 @@ const server = http.createServer(async (req, res) => {
 
     // SSE real-time stream
     if (req.method === "GET" && pathname === "/api/events") {
+      const sseWs = parsedUrl.searchParams.get("workspacePath") || undefined;
+      const snap = db.buildFullWorkspaceSnapshot(sseWs);
+      snap.runningHeadlessKeys = getRunningHeadlessList();
+      snap.version = getCompositeVersion(sseWs);
+      snap.uiAssetMtimeMs = getUiAssetMtimeMs();
       res.socket?.setNoDelay?.(true);
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -1255,11 +1276,6 @@ const server = http.createServer(async (req, res) => {
         "X-Accel-Buffering": "no"
       });
       sseClients.add(res);
-      const sseWs = parsedUrl.searchParams.get("workspacePath") || undefined;
-      const snap = db.buildFullWorkspaceSnapshot(sseWs);
-      snap.runningHeadlessKeys = getRunningHeadlessList();
-      snap.version = getCompositeVersion(sseWs);
-      snap.uiAssetMtimeMs = getUiAssetMtimeMs();
       res.write(`event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`);
       const keepAlive = setInterval(() => {
         try { res.write(": ping\n\n"); } catch {}

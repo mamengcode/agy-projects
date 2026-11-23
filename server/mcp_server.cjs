@@ -48,19 +48,27 @@ function notifySidecar(workspacePath, extra = {}) {
 }
 
 function requireWorkspace(args = {}) {
-  if (args.workspacePath && db.hasProjectInitialized(args.workspacePath)) {
-    return path.resolve(args.workspacePath);
+  const hasExplicitWs =
+    args.workspacePath !== undefined &&
+    args.workspacePath !== null &&
+    String(args.workspacePath).trim() !== "";
+  if (hasExplicitWs) {
+    return db.resolveActiveWorkspace(args.workspacePath, args.projectId);
   }
-  if (!args.projectId) {
+  const hasExplicitPid =
+    args.projectId !== undefined &&
+    args.projectId !== null &&
+    String(args.projectId).trim() !== "";
+  if (!hasExplicitPid) {
     const convId = process.env.ANTIGRAVITY_CONVERSATION_ID || "";
     if (convId) {
-      const binding = db.resolveSessionBinding(convId, args.workspacePath ? [args.workspacePath] : []);
+      const binding = db.resolveSessionBinding(convId, []);
       if (binding?.bound && binding.workspacePath && db.hasProjectInitialized(binding.workspacePath)) {
         return path.resolve(binding.workspacePath);
       }
     }
   }
-  const ws = db.resolveActiveWorkspace(args.workspacePath, args.projectId);
+  const ws = db.resolveActiveWorkspace(undefined, args.projectId);
   if (!ws || !db.hasProjectInitialized(ws)) {
     throw new Error(
       "No active AGY Project found. Initialize one first with create_project({ name, workspacePath }) or select an existing project with select_project."
@@ -708,7 +716,7 @@ function executeTool(name, args = {}) {
 
     case "get_project_overview": {
       const ws = db.resolveActiveWorkspace(args.workspacePath, args.projectId);
-      const snap = db.buildFullWorkspaceSnapshot(ws || args.workspacePath);
+      const snap = db.buildFullWorkspaceSnapshot(ws || undefined);
       return {
         ...snap,
         swarm: snap.swarm || {
