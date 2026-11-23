@@ -733,18 +733,51 @@ function collectDiagnostics(workspacePath) {
   return { plugins, connectors, secretRefs };
 }
 
+function buildDaemonStateSnapshot(workspacePath) {
+  if (Date.now() - ghAuthCache.checkedAt > 30000) {
+    refreshGhAuthStatus().catch(() => {});
+  }
+  const snap = db.buildFullWorkspaceSnapshot(workspacePath);
+  snap.runningHeadlessKeys = getRunningHeadlessList();
+  try {
+    snap.accountMemoryContent = fs.readFileSync(db.getAccountMemoryPath(), "utf8");
+  } catch {
+    snap.accountMemoryContent = "";
+  }
+  snap.diagnostics = collectDiagnostics(workspacePath);
+  snap.version = getCompositeVersion(workspacePath);
+  snap.uiAssetMtimeMs = getUiAssetMtimeMs();
+  return snap;
+}
+
 function broadcastSnapshot(workspacePath) {
   bumpStateVersion();
   if (sseClients.size === 0) return;
   try {
-    const snap = db.buildFullWorkspaceSnapshot(workspacePath);
-    snap.runningHeadlessKeys = getRunningHeadlessList();
-    snap.version = getCompositeVersion(workspacePath);
-    snap.uiAssetMtimeMs = getUiAssetMtimeMs();
-    const frame = `event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`;
-    for (const client of sseClients) {
+    const targetWs = workspacePath ? path.resolve(workspacePath) : null;
+    const frameByKey = new Map();
+    const getFrameForWs = (wsPath) => {
+      const key = wsPath || "__default__";
+      if (!frameByKey.has(key)) {
+        const snap = buildDaemonStateSnapshot(wsPath || undefined);
+        frameByKey.set(key, `event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`);
+      }
+      return frameByKey.get(key);
+    };
+
+    for (const client of Array.from(sseClients)) {
+      const resObj = client && client.res ? client.res : client;
+      const clientWs = client && client.workspacePath ? client.workspacePath : null;
+      let frame;
+      if (!clientWs) {
+        // Unpinned clients follow the active project (same semantics as GET /api/state)
+        frame = getFrameForWs(undefined);
+      } else {
+        if (targetWs && clientWs !== targetWs) continue;
+        frame = getFrameForWs(clientWs);
+      }
       try {
-        client.write(frame);
+        resObj.write(frame);
       } catch {
         sseClients.delete(client);
       }
@@ -1325,10 +1358,7 @@ const server = http.createServer(async (req, res) => {
     // SSE real-time stream
     if (req.method === "GET" && pathname === "/api/events") {
       const sseWs = parsedUrl.searchParams.get("workspacePath") || undefined;
-      const snap = db.buildFullWorkspaceSnapshot(sseWs);
-      snap.runningHeadlessKeys = getRunningHeadlessList();
-      snap.version = getCompositeVersion(sseWs);
-      snap.uiAssetMtimeMs = getUiAssetMtimeMs();
+      const snap = buildDaemonStateSnapshot(sseWs);
       res.socket?.setNoDelay?.(true);
       res.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -1337,14 +1367,16 @@ const server = http.createServer(async (req, res) => {
         "X-Accel-Buffering": "no",
         ...BASE_SECURITY_HEADERS
       });
-      sseClients.add(res);
+      const sseClient = { res, workspacePath: sseWs ? path.resolve(sseWs) : null };
+      sseClients.add(sseClient);
       res.write(`event: snapshot\ndata: ${JSON.stringify(snap)}\n\n`);
       const keepAlive = setInterval(() => {
         try { res.write(": ping\n\n"); } catch {}
       }, 20000);
+      keepAlive.unref?.();
       req.on("close", () => {
         clearInterval(keepAlive);
-        sseClients.delete(res);
+        sseClients.delete(sseClient);
       });
       return;
     }
@@ -1361,15 +1393,7 @@ const server = http.createServer(async (req, res) => {
           uiAssetMtimeMs
         });
       }
-      if (Date.now() - ghAuthCache.checkedAt > 30000) {
-        refreshGhAuthStatus().catch(() => {});
-      }
-      const snap = db.buildFullWorkspaceSnapshot(wsHint);
-      snap.runningHeadlessKeys = getRunningHeadlessList();
-      snap.accountMemoryContent = fs.readFileSync(db.getAccountMemoryPath(), "utf8");
-      snap.diagnostics = collectDiagnostics(wsHint);
-      snap.version = getCompositeVersion(wsHint);
-      snap.uiAssetMtimeMs = uiAssetMtimeMs;
+      const snap = buildDaemonStateSnapshot(wsHint);
       return sendJson(res, 200, snap);
     }
 

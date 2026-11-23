@@ -422,4 +422,175 @@ test("Sidecar Daemon HTTP/SSE APIs, CORS/CSP/Token Security (GAP-09, GAP-04), an
     });
     assert.equal(upTrav.status, 400);
   });
+
+  await t.test("GAP-17: live SSE /api/events emits accountMemoryContent & diagnostics on init and broadcast, and ui.html wires EventSource", async () => {
+    const http = require("node:http");
+    const wsSse = env.makeWorkspace("daemon-sse");
+    db.createProject({ name: "SSE Proj", workspacePath: wsSse });
+    const auth = { "X-Sidecar-Token": daemon.token };
+
+    // Set account memory first so initial SSE frame carries it
+    const acctRes = await daemon.request("POST", "/api/memory/save-account", auth, {
+      workspacePath: wsSse,
+      content: "# Account Memory\nGAP-17 initial marker\n"
+    });
+    assert.equal(acctRes.status, 200);
+
+    const frames = [];
+    let waitForFrame = null;
+    const nextFrame = () =>
+      new Promise((resolve, reject) => {
+        if (frames.length > 0) return resolve(frames.shift());
+        const timer = setTimeout(() => reject(new Error("Timed out waiting for SSE snapshot frame")), 5000);
+        waitForFrame = (val) => {
+          clearTimeout(timer);
+          waitForFrame = null;
+          resolve(val);
+        };
+      });
+
+    const sseReq = http.request({
+      hostname: "127.0.0.1",
+      port: daemon.port,
+      path: `/api/events?token=${encodeURIComponent(daemon.token)}&workspacePath=${encodeURIComponent(wsSse)}`,
+      method: "GET"
+    });
+
+    let sseResRef = null;
+    let buf = "";
+    const connected = new Promise((resolve, reject) => {
+      sseReq.on("error", reject);
+      sseReq.on("response", (res) => {
+        sseResRef = res;
+        assert.equal(res.statusCode, 200);
+        assert.match(String(res.headers["content-type"] || ""), /text\/event-stream/);
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          buf += chunk;
+          let idx;
+          while ((idx = buf.indexOf("\n\n")) !== -1) {
+            const rawBlock = buf.slice(0, idx);
+            buf = buf.slice(idx + 2);
+            const dataLine = rawBlock
+              .split("\n")
+              .find((l) => l.startsWith("data: "));
+            if (dataLine) {
+              const parsed = JSON.parse(dataLine.slice(6));
+              if (waitForFrame) waitForFrame(parsed);
+              else frames.push(parsed);
+            }
+          }
+        });
+        resolve();
+      });
+    });
+    sseReq.end();
+
+    try {
+      await connected;
+      // 1. Initial SSE snapshot includes accountMemoryContent and diagnostics
+      const initSnap = await nextFrame();
+      assert.equal(initSnap.initialized, true);
+      assert.ok(String(initSnap.accountMemoryContent || "").includes("GAP-17 initial marker"));
+      assert.ok(initSnap.diagnostics && typeof initSnap.diagnostics === "object");
+      assert.ok(initSnap.diagnostics.connectors && initSnap.diagnostics.plugins);
+
+      // 2. Mutation triggers broadcastSnapshot() which ALSO includes accountMemoryContent & diagnostics
+      const updGoal = await daemon.request("POST", "/api/settings/update", auth, {
+        workspacePath: wsSse,
+        goal: "SSE-broadcast-verified"
+      });
+      assert.equal(updGoal.status, 200);
+
+      const broadcastSnap = await nextFrame();
+      assert.equal(broadcastSnap.config.goal, "SSE-broadcast-verified");
+      assert.ok(String(broadcastSnap.accountMemoryContent || "").includes("GAP-17 initial marker"));
+      assert.ok(broadcastSnap.diagnostics && typeof broadcastSnap.diagnostics === "object");
+      assert.ok(broadcastSnap.diagnostics.connectors && broadcastSnap.diagnostics.plugins);
+    } finally {
+      try { sseReq.destroy(); } catch {}
+      try { sseResRef?.destroy(); } catch {}
+    }
+
+    // 2b. Unpinned /api/events follows active project switches immediately (POST /api/projects/select)
+    const wsSseB = env.makeWorkspace("daemon-sse-b");
+    const createdB = db.createProject({ name: "SSE Proj B", workspacePath: wsSseB });
+    const regSse = db.loadRegistry();
+    const projA = regSse.projects.find((p) => path.resolve(p.workspacePath) === path.resolve(wsSse));
+    db.selectProject({ projectId: projA.projectId });
+
+    const uFrames = [];
+    let uWait = null;
+    const nextUnpinned = () =>
+      new Promise((resolve, reject) => {
+        if (uFrames.length > 0) return resolve(uFrames.shift());
+        const timer = setTimeout(() => reject(new Error("Timed out waiting for unpinned SSE frame")), 5000);
+        uWait = (val) => {
+          clearTimeout(timer);
+          uWait = null;
+          resolve(val);
+        };
+      });
+
+    const uReq = http.request({
+      hostname: "127.0.0.1",
+      port: daemon.port,
+      path: `/api/events?token=${encodeURIComponent(daemon.token)}`,
+      method: "GET"
+    });
+    let uResRef = null;
+    let uBuf = "";
+    const uConn = new Promise((resolve, reject) => {
+      uReq.on("error", reject);
+      uReq.on("response", (res) => {
+        uResRef = res;
+        assert.equal(res.statusCode, 200);
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          uBuf += chunk;
+          let idx;
+          while ((idx = uBuf.indexOf("\n\n")) !== -1) {
+            const rawBlock = uBuf.slice(0, idx);
+            uBuf = uBuf.slice(idx + 2);
+            const dataLine = rawBlock.split("\n").find((l) => l.startsWith("data: "));
+            if (dataLine) {
+              const parsed = JSON.parse(dataLine.slice(6));
+              if (uWait) uWait(parsed);
+              else uFrames.push(parsed);
+            }
+          }
+        });
+        resolve();
+      });
+    });
+    uReq.end();
+
+    try {
+      await uConn;
+      const uInit = await nextUnpinned();
+      assert.equal(uInit.config.projectId, projA.projectId);
+
+      const projBId = createdB.config.projectId;
+      const selB = await daemon.request("POST", "/api/projects/select", auth, {
+        projectId: projBId
+      });
+      assert.equal(selB.status, 200);
+
+      const uSwitched = await nextUnpinned();
+      assert.equal(uSwitched.config.projectId, projBId);
+      assert.equal(uSwitched.config.name, "SSE Proj B");
+      assert.ok(uSwitched.diagnostics && uSwitched.diagnostics.connectors);
+    } finally {
+      try { uReq.destroy(); } catch {}
+      try { uResRef?.destroy(); } catch {}
+    }
+
+    // 3. ui.html EventSource wiring & cleanup assertions
+    const uiHtml = fs.readFileSync(path.join(env.REPO_ROOT, "sidecars", "project_hub", "ui.html"), "utf8");
+    assert.ok(uiHtml.includes("new EventSource("));
+    assert.ok(uiHtml.includes("/api/events"));
+    assert.ok(uiHtml.includes('addEventListener("snapshot"'));
+    assert.ok(uiHtml.includes("closeStateSse"));
+    assert.ok(uiHtml.includes('window.addEventListener("beforeunload", closeStateSse)'));
+  });
 });

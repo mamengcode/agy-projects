@@ -5305,22 +5305,97 @@
         }
       }
 
+      const pinnedUrlWs = (new URLSearchParams(window.location.search).get("workspacePath") || "").trim() || null;
+      let sseSource = null;
+      let sseConnected = false;
+      let sseReconnectTimer = null;
+      let sseReconnectDelayMs = 1000;
+      let sseTargetWorkspacePath = pinnedUrlWs;
+      let lastSseEventAt = 0;
+      let lastSafetyPollAt = 0;
+
+      function closeStateSse() {
+        if (sseReconnectTimer) {
+          clearTimeout(sseReconnectTimer);
+          sseReconnectTimer = null;
+        }
+        if (sseSource) {
+          try { sseSource.close(); } catch {}
+          sseSource = null;
+        }
+        sseConnected = false;
+      }
+
+      function applySnapshotData(data) {
+        if (!data || typeof data !== "object") return;
+        if (data.version) {
+          lastSeenVersion = String(data.version);
+        }
+        checkUiAssetHotReload(data.uiAssetMtimeMs);
+        if (data.unchanged) return;
+        state = data;
+        renderAll();
+      }
+
+      function connectStateSse(targetWs) {
+        if (typeof EventSource !== "function") return;
+        closeStateSse();
+        const wsParam = targetWs !== undefined ? targetWs : pinnedUrlWs;
+        sseTargetWorkspacePath = wsParam || null;
+        const qs = new URLSearchParams();
+        if (sidecarToken) qs.set("token", sidecarToken);
+        if (wsParam) qs.set("workspacePath", wsParam);
+        const url = qs.toString() ? `/api/events?${qs.toString()}` : "/api/events";
+        try {
+          const es = new EventSource(url);
+          sseSource = es;
+          es.addEventListener("open", () => {
+            if (sseSource !== es) return;
+            sseConnected = true;
+            sseReconnectDelayMs = 1000;
+            lastSseEventAt = Date.now();
+          });
+          es.addEventListener("snapshot", (ev) => {
+            if (sseSource !== es) return;
+            sseConnected = true;
+            sseReconnectDelayMs = 1000;
+            lastSseEventAt = Date.now();
+            try {
+              const snap = JSON.parse(ev.data);
+              applySnapshotData(snap);
+            } catch {}
+          });
+          es.addEventListener("error", () => {
+            if (sseSource !== es) return;
+            sseConnected = false;
+            try { es.close(); } catch {}
+            sseSource = null;
+            const delay = sseReconnectDelayMs;
+            sseReconnectDelayMs = Math.min(sseReconnectDelayMs * 2, 15000);
+            sseReconnectTimer = setTimeout(async () => {
+              sseReconnectTimer = null;
+              if (document.visibilityState === "hidden") return;
+              try {
+                await refreshSidecarToken();
+              } catch {}
+              connectStateSse(sseTargetWorkspacePath);
+            }, delay);
+          });
+        } catch {
+          sseConnected = false;
+        }
+      }
+
       async function refreshState(incremental) {
         if (incremental && pollInFlight) return;
         if (incremental) pollInFlight = true;
         try {
-          const pathWithQuery =
-            incremental && lastSeenVersion
-              ? `/api/state?sinceVersion=${encodeURIComponent(lastSeenVersion)}`
-              : "/api/state";
+          const qs = new URLSearchParams();
+          if (incremental && lastSeenVersion) qs.set("sinceVersion", lastSeenVersion);
+          if (pinnedUrlWs) qs.set("workspacePath", pinnedUrlWs);
+          const pathWithQuery = qs.toString() ? `/api/state?${qs.toString()}` : "/api/state";
           const data = await api(pathWithQuery);
-          if (data && data.version) {
-            lastSeenVersion = String(data.version);
-          }
-          checkUiAssetHotReload(data?.uiAssetMtimeMs);
-          if (data && data.unchanged) return;
-          state = data;
-          renderAll();
+          applySnapshotData(data);
         } catch (err) {
           if (!incremental) showToast(err.message, true);
         } finally {
@@ -5330,10 +5405,20 @@
 
       // Render immediately so the Welcome Card & buttons are interactive before any network call completes
       renderAll();
-      refreshState(false).catch(() => {});
+      refreshState(false)
+        .catch(() => {})
+        .finally(() => {
+          if (!sseSource) connectStateSse(pinnedUrlWs);
+        });
 
+      // Fallback polling: 1.5s when SSE is unavailable/disconnected; slow 15s safety check while SSE is live
       setInterval(() => {
         if (document.visibilityState === "hidden") return;
+        const nowMs = Date.now();
+        if (sseConnected) {
+          if (nowMs - Math.max(lastSseEventAt, lastSafetyPollAt) < 15000) return;
+          lastSafetyPollAt = nowMs;
+        }
         refreshState(true).catch(() => {});
       }, 1500);
 
@@ -5350,9 +5435,17 @@
 
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState === "visible") {
-          refreshState(true).catch(() => {});
+          if (!sseConnected && !sseSource) {
+            connectStateSse(pinnedUrlWs);
+          }
+          if (!sseConnected) {
+            refreshState(true).catch(() => {});
+          }
         }
       });
+
+      window.addEventListener("beforeunload", closeStateSse);
+      window.addEventListener("pagehide", closeStateSse);
     })();
   </script>
 </body>
