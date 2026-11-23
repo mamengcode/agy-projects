@@ -64,17 +64,17 @@ def ensure_venv_and_reexec() -> None:
         if res.returncode != 0:
             subprocess.run([uv_bin, "venv", str(venv_dir)], check=True, capture_output=True, text=True)
 
-    # Install Dual-Provider RAG + PDF extractor + Antigravity Python SDK packages
-    packages = ["fastembed", "google-genai", "pypdf", "google-antigravity"]
+    # Install Dual-Provider RAG + PDF/Image extractor + Antigravity Python SDK packages
+    packages = ["fastembed", "google-genai", "pypdf", "pillow", "google-antigravity"]
     install_res = subprocess.run(
         [uv_bin, "pip", "install", "--python", str(venv_python), *packages],
         capture_output=True,
         text=True,
     )
     if install_res.returncode != 0:
-        # Install fastembed + google-genai + pypdf even if google-antigravity wheel requires separate install
+        # Install core RAG/extraction deps even if google-antigravity wheel requires separate install
         subprocess.run(
-            [uv_bin, "pip", "install", "--python", str(venv_python), "fastembed", "google-genai", "pypdf"],
+            [uv_bin, "pip", "install", "--python", str(venv_python), "fastembed", "google-genai", "pypdf", "pillow"],
             check=True,
             capture_output=True,
             text=True,

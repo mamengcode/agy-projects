@@ -23,7 +23,7 @@ description: Orchestrates an AGY Project (Claude Code Projects architecture): Da
   2. Switch models only while the target worker is `waiting` using `swarm{action:"model", name, model}`.
   3. Terminate finished workers only after landing their branch/worktree or upon explicit user request via `swarm{action:"kill", name}`.
   4. When waiting for asynchronous workers, call `swarm_wait(since=<last_seq>)` (`0` on Turn 1 if unread) or stop calling tools cleanly so Antigravity resumes you on `@coordinator` mentions.
-- **Non-Swarm fallback:** Only when built-in Swarm is disabled or remote (`executionEngine !== "swarm"`), spawn `invoke_subagent`, bind `conversationId` via `register_thread`, and steer with `send_message` + `update_thread_state`.
+- **Non-Swarm fallback:** Only when built-in Swarm is disabled or remote (`executionEngine !== "swarm"`): when `executionEngine === "subagent"`, spawn `invoke_subagent`, bind `conversationId` via `register_thread`, and steer with `send_message` + `update_thread_state`; when `executionEngine === "headless"`, dispatch Headless SDK workers from Project Hub, cron routines, or PR auto-fix.
 
 ## 3. Multi-Repo PR Sequencing & Auto-Fix
 - When a goal spans multiple repositories (e.g., API schema + web client), assign explicit `mergeOrderRank` (`1, 2, ...`) via `sync_pull_requests` and enable `watchingAutoFix: true` on open PR threads so the 60s Sidecar watcher dispatches `pr_autofix` Hub dispatches to remediate CI or review failures (`project-pr-fixer` reads untrusted details via `get_dispatch_context`).

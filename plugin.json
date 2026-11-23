@@ -2,7 +2,7 @@
   "name": "agy-projects",
   "displayName": "AGY Projects (Claude Code Projects Architecture)",
   "version": "1.0.0",
-  "description": "Clean-sheet Claude Code Projects workspace hub: single Coordinator conversation, isolated parallel share/branch Worker Threads across 8 lifecycle buckets, 4-tier Context & <=16k Instructions + MEMORY.md index, Dual-Provider Contextual Retrieval Hybrid RAG (Local ONNX fastembed default + optional gemini-embedding-2), 60s PR Auto-Fix & Cron Routines via google-antigravity SDK, and 6-tab Project Hub sidecar.",
+  "description": "Clean-sheet Claude Code Projects workspace hub: single Coordinator conversation, Swarm-first isolated parallel share/branch/worktree Worker Threads across 8 lifecycle buckets, 4-tier Context & <=16k Instructions + MEMORY.md index, Dual-Provider Contextual Retrieval Hybrid RAG (Local ONNX fastembed default + optional gemini-embedding-2), Swarm-first 60s PR Auto-Fix & 30s Cron Routines with Headless google-antigravity SDK fallback, and 6-tab SSE Project Hub sidecar.",
   "logo": "assets/logo.svg",
   "disabled": false,
   "author": {

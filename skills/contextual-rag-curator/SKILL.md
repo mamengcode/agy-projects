@@ -15,6 +15,6 @@ description: Curates the AGY Project Library and Dual-Provider Contextual Retrie
 
 ## 2. File & PDF Ingestion Rules
 - Call `ingest_library_item(sourcePath, category="input" | "output")`:
-  - Uploaded `input` files enforce a `30 MB` default per-file cap.
+  - Uploaded `input` files enforce a `30 MB` default per-file cap (`45 MB` for large uploads when `allowLargeLocal: true`, and up to `200 MB` for local `sourcePath` ingestion with `allowLargeLocal: true`).
   - PDFs `<= 100` pages support visual + text multimodal indexing (when `gemini-embedding-2` is active); `101–1,000` pages extract text-only; `> 1,000` pages are rejected.
 - Always cite retrieved chunks using clickable `[basename](file:///absolute/path#Lstart-Lend)` links returned by `search_project_library`.

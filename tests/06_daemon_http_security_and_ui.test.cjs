@@ -694,4 +694,77 @@ test("Sidecar Daemon HTTP/SSE APIs, CORS/CSP/Token Security (GAP-09, GAP-04), an
     throwingSandbox.renderSafeSnippet(fallbackContainer, "Safe <mark>hit</mark> &quot;q&quot;");
     assert.equal(fallbackContainer.children.map(serialize).join(""), '<code>Safe <mark>hit</mark> "q"</code>');
   });
+
+  await t.test("GAP-22: /api/routines/upsert returns HTTP 400 on invalid inputs, dead code removed, and manifest/docs aligned", async () => {
+    const wsVal = env.makeWorkspace("daemon-gap22");
+    db.createProject({ name: "GAP22 Proj", workspacePath: wsVal });
+    const auth = { "X-Sidecar-Token": daemon.token };
+
+    const missingName = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsVal,
+      cronExpr: "0 2 * * *",
+      prompt: "Check"
+    });
+    assert.equal(missingName.status, 400);
+    assert.match(missingName.json.error, /name/i);
+
+    const missingCron = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsVal,
+      name: "No Cron",
+      prompt: "Check"
+    });
+    assert.equal(missingCron.status, 400);
+    assert.match(missingCron.json.error, /cron/i);
+
+    const missingPrompt = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsVal,
+      name: "No Prompt",
+      cronExpr: "0 2 * * *"
+    });
+    assert.equal(missingPrompt.status, 400);
+    assert.match(missingPrompt.json.error, /prompt/i);
+
+    const badWsMode = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsVal,
+      name: "Bad Mode",
+      cronExpr: "0 2 * * *",
+      prompt: "Check",
+      workspaceMode: "bogus"
+    });
+    assert.equal(badWsMode.status, 400);
+    assert.match(badWsMode.json.error, /workspaceMode/i);
+
+    const badCron = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsVal,
+      name: "Bad Cron",
+      cronExpr: "not-a-cron",
+      prompt: "Check"
+    });
+    assert.equal(badCron.status, 400);
+    assert.match(badCron.json.error, /cron/i);
+
+    const validAlias = await daemon.request("POST", "/api/routines/upsert", auth, {
+      workspacePath: wsVal,
+      name: "Alias Cron",
+      cronExpression: "15 3 * * *",
+      prompt: "Run nightly",
+      workspaceMode: "share"
+    });
+    assert.equal(validAlias.status, 200);
+    assert.equal(validAlias.json.routine.cron_expr, "15 3 * * *");
+
+    // Static checks for dead code removal & manifest/doc alignment
+    const dbSrc = fs.readFileSync(path.join(env.REPO_ROOT, "server", "db.cjs"), "utf8");
+    assert.equal(dbSrc.includes("last_manual_transition_at"), false);
+    assert.equal(dbSrc.includes("matchesCronField"), false);
+
+    const pluginJson = JSON.parse(fs.readFileSync(path.join(env.REPO_ROOT, "plugin.json"), "utf8"));
+    assert.match(pluginJson.description, /Swarm-first/i);
+
+    const prFixerMd = fs.readFileSync(path.join(env.REPO_ROOT, "agents", "project-pr-fixer.md"), "utf8");
+    assert.equal(prFixerMd.includes("skills/pr-autofix-worker/SKILL.md"), false);
+
+    const ragSkillMd = fs.readFileSync(path.join(env.REPO_ROOT, "skills", "contextual-rag-curator", "SKILL.md"), "utf8");
+    assert.ok(ragSkillMd.includes("45 MB") && ragSkillMd.includes("200 MB"));
+  });
 });

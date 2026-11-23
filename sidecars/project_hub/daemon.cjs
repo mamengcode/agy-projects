@@ -1300,7 +1300,7 @@ const server = http.createServer(async (req, res) => {
 
     // Sidecar SDK bridge endpoints (used by preload.js)
     if (req.method === "POST" && pathname === "/_sidecar/get-conversation-metadata") {
-      const body = await readRequestBody(req, pathname === "/api/library/upload" ? 64 * 1024 * 1024 : 48 * 1024 * 1024);
+      const body = await readRequestBody(req, 48 * 1024 * 1024);
       const convId = String(body.conversationId || process.env.ANTIGRAVITY_CONVERSATION_ID || "").trim();
       if (!convId || !db.VALID_CONV_ID_RE.test(convId)) {
         return sendJson(res, 400, { error: "Invalid conversationId" });
@@ -1310,7 +1310,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && pathname === "/_sidecar/send-message") {
-      const body = await readRequestBody(req, pathname === "/api/library/upload" ? 64 * 1024 * 1024 : 48 * 1024 * 1024);
+      const body = await readRequestBody(req, 48 * 1024 * 1024);
       const convId = String(body.conversationId || "").trim();
       const message = String(body.message || "").trim();
       if (!convId || !db.VALID_CONV_ID_RE.test(convId) || !message) {
@@ -1324,7 +1324,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && pathname === "/_sidecar/new-conversation") {
-      const body = await readRequestBody(req, pathname === "/api/library/upload" ? 64 * 1024 * 1024 : 48 * 1024 * 1024);
+      const body = await readRequestBody(req, 48 * 1024 * 1024);
       const message = String(body.message || "").trim();
       if (!message) return sendJson(res, 400, { error: "Missing message" });
       const args = ["new-conversation"];
@@ -2343,7 +2343,33 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === "/api/routines/upsert") {
-      const routine = db.upsertSchedule(ws, body);
+      const name = String(body.name || "").trim();
+      const cronExpr = String(body.cronExpr ?? body.cronExpression ?? "").trim();
+      const prompt = String(body.prompt || "").trim();
+      const workspaceMode = body.workspaceMode !== undefined ? String(body.workspaceMode).trim() : "share";
+      const targetRole = body.targetRole !== undefined ? String(body.targetRole).trim() : "explorer";
+      if (!name) return sendJson(res, 400, { error: "Routine name is required." });
+      if (!cronExpr) return sendJson(res, 400, { error: "Routine cronExpr is required." });
+      if (!prompt) return sendJson(res, 400, { error: "Routine prompt is required." });
+      if (!["inherit", "share", "branch", "worktree"].includes(workspaceMode)) {
+        return sendJson(res, 400, {
+          error: `Invalid workspaceMode '${workspaceMode}'. Must be 'inherit', 'share', 'branch', or 'worktree'.`
+        });
+      }
+      let routine;
+      try {
+        routine = db.upsertSchedule(ws, {
+          routineId: body.routineId || undefined,
+          name,
+          cronExpr,
+          prompt,
+          targetRole,
+          workspaceMode,
+          enabled: body.enabled !== undefined ? Boolean(body.enabled) : true
+        });
+      } catch (err) {
+        return sendJson(res, 400, { error: err?.message || "Invalid routine configuration." });
+      }
       broadcastSnapshot(ws);
       return sendJson(res, 200, { routine });
     }

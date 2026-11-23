@@ -1359,7 +1359,6 @@ function openProjectDb(workspacePath) {
       swarm_handled_seq     INTEGER NOT NULL DEFAULT 0,
       swarm_last_message    TEXT,
       active_dispatch_id    TEXT,
-      last_manual_transition_at TEXT,
       execution_backend     TEXT NOT NULL DEFAULT 'subagent'
     );
 
@@ -1513,7 +1512,6 @@ function openProjectDb(workspacePath) {
   ensureColumnExists(threadCols, "threads", "swarm_handled_seq", "INTEGER NOT NULL DEFAULT 0");
   ensureColumnExists(threadCols, "threads", "swarm_last_message", "TEXT");
   ensureColumnExists(threadCols, "threads", "active_dispatch_id", "TEXT");
-  ensureColumnExists(threadCols, "threads", "last_manual_transition_at", "TEXT");
   ensureColumnExists(threadCols, "threads", "execution_backend", "TEXT NOT NULL DEFAULT 'subagent'");
 
   db.exec(`
@@ -3872,11 +3870,9 @@ function updateThreadState(workspacePath, { threadId, conversationId, uiBucket, 
     summary !== undefined ||
     clearBlockingQuestion !== undefined;
   let nextHandledSeq = Number(row.swarm_handled_seq || 0);
-  let nextManualTransitionAt = row.last_manual_transition_at || null;
   if (isManualLifecycle) {
     const boardHead = getSwarmBoardHeadSync(workspacePath, row);
     nextHandledSeq = Math.max(nextHandledSeq, boardHead);
-    nextManualTransitionAt = ts;
   }
   const nextActiveDispatchId =
     activeDispatchId !== undefined
@@ -3900,7 +3896,6 @@ function updateThreadState(workspacePath, { threadId, conversationId, uiBucket, 
       updated_at = ?,
       resolved_at = ?,
       swarm_handled_seq = ?,
-      last_manual_transition_at = ?,
       active_dispatch_id = ?
     WHERE thread_id = ?
   `).run(
@@ -3919,7 +3914,6 @@ function updateThreadState(workspacePath, { threadId, conversationId, uiBucket, 
     ts,
     resolvedAt,
     nextHandledSeq,
-    nextManualTransitionAt,
     nextActiveDispatchId,
     row.thread_id
   );
@@ -4922,12 +4916,6 @@ function validateCronField(field, min, max, { isDow = false, isMonth = false } =
   return allowed;
 }
 
-function matchesCronField(fieldExpr, value, min, max, opts = {}) {
-  const allowed = validateCronField(fieldExpr, min, max, opts);
-  const checkVal = opts.isDow && value === 7 ? 0 : value;
-  return allowed.has(checkVal);
-}
-
 function computeNextCronRun(cronExpr, fromDate = new Date()) {
   const fields = String(cronExpr || "").trim().split(/\s+/);
   if (fields.length !== 5) {
@@ -5000,9 +4988,39 @@ function computeNextCronRun(cronExpr, fromDate = new Date()) {
   throw new Error(`Cron expression '${cronExpr}' has no upcoming execution window within 8 years.`);
 }
 
-function upsertSchedule(workspacePath, { routineId, name, cronExpr, prompt, targetRole = "explorer", workspaceMode = "share", enabled = true }) {
+function upsertSchedule(workspacePath, { routineId, name, cronExpr, cronExpression, prompt, targetRole = "explorer", workspaceMode = "share", enabled = true } = {}) {
+  const cleanName = String(name || "").trim();
+  const cleanCron = String(cronExpr ?? cronExpression ?? "").trim();
+  const cleanPrompt = String(prompt || "").trim();
+  const cleanMode = String(workspaceMode || "share").trim();
+  if (!cleanName) {
+    const err = new Error("Routine name is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!cleanCron) {
+    const err = new Error("Routine cronExpr is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!cleanPrompt) {
+    const err = new Error("Routine prompt is required.");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!["inherit", "share", "branch", "worktree"].includes(cleanMode)) {
+    const err = new Error(`Invalid workspaceMode '${cleanMode}'. Must be 'inherit', 'share', 'branch', or 'worktree'.`);
+    err.statusCode = 400;
+    throw err;
+  }
   const db = openProjectDb(workspacePath);
-  const nextRunAt = computeNextCronRun(cronExpr);
+  let nextRunAt;
+  try {
+    nextRunAt = computeNextCronRun(cleanCron);
+  } catch (cronErr) {
+    cronErr.statusCode = 400;
+    throw cronErr;
+  }
   const id = routineId || `cron-${crypto.randomUUID().slice(0, 8)}`;
   const normRole = normalizeRole(targetRole);
   db.prepare(`
@@ -5021,7 +5039,7 @@ function upsertSchedule(workspacePath, { routineId, name, cronExpr, prompt, targ
       last_error = NULL,
       last_error_at = NULL,
       consecutive_failures = 0
-  `).run(id, name, cronExpr, prompt, normRole, workspaceMode, enabled ? 1 : 0, nextRunAt);
+  `).run(id, cleanName, cleanCron, cleanPrompt, normRole, cleanMode, enabled ? 1 : 0, nextRunAt);
   return db.prepare("SELECT * FROM scheduled_routines WHERE routine_id = ?").get(id);
 }
 
