@@ -737,6 +737,72 @@ function readSwarmMembersMap(appDataDir, coordId) {
   return { swarmDir, members };
 }
 
+function transcriptEndedWithSwarmWait(appDataDir, convId) {
+  if (!convId) return false;
+  const trPath = db.getTranscriptPath(appDataDir, String(convId));
+  if (!trPath || !fs.existsSync(trPath)) return false;
+  try {
+    const raw = fs.readFileSync(trPath, "utf8");
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim());
+    const results = [];
+    for (let i = lines.length - 1; i >= 0; i--) {
+      let step;
+      try {
+        step = JSON.parse(lines[i]);
+      } catch {
+        return false;
+      }
+      if (!step || typeof step !== "object") return false;
+      if (step.type === "GENERIC") {
+        results.unshift(step);
+        continue;
+      }
+      if (step.type !== "PLANNER_RESPONSE") return false;
+      const calls = Array.isArray(step.tool_calls) ? step.tool_calls : [];
+      const waitIdx = calls.findIndex((c) => c?.name === "swarm_wait");
+      return waitIdx >= 0 && results.length >= calls.length && results[waitIdx]?.status === "DONE";
+    }
+  } catch {}
+  return false;
+}
+
+function hasSwarmTurnBoardCompletion(appDataDir, coordId, memberName, freshThread, conversationId) {
+  const swarmDir = coordId ? db.getSwarmDir(appDataDir, coordId) : null;
+  if (!swarmDir || !memberName) return false;
+  const boardTail = db.readBoardTailSync(path.join(swarmDir, "board.jsonl"));
+  const msgs = Array.isArray(boardTail.msgs) ? boardTail.msgs : [];
+
+  let lastAssignedSeq = Number(freshThread?.swarm_handled_seq || 0);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const bm = msgs[i];
+    if (!bm || bm.control) continue;
+    const seq = Number(bm.seq) || 0;
+    if (bm.agent !== memberName) {
+      const txt = String(bm.text || "");
+      if (db.hasExactMention(txt, memberName) || db.hasExactMention(txt, "all")) {
+        if (seq > lastAssignedSeq) lastAssignedSeq = seq;
+        break;
+      }
+    }
+  }
+
+  const endedWithWait = transcriptEndedWithSwarmWait(appDataDir, freshThread?.conversation_id || conversationId);
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const bm = msgs[i];
+    if (!bm || bm.control) continue;
+    const seq = Number(bm.seq) || 0;
+    if (seq <= lastAssignedSeq) break;
+    if (bm.agent !== memberName) continue;
+    const txt = String(bm.text || "").trim();
+    if (!txt) continue;
+    if (db.DONE_LINE_RE.test(txt)) return true;
+    const mentionsCoord = db.hasExactMention(txt, "coordinator");
+    if (mentionsCoord && (db.BLOCKED_LINE_RE.test(txt) || Boolean(db.replyQuestion(txt)))) return true;
+    if (endedWithWait) return true;
+  }
+  return false;
+}
+
 function tryAutoBindSwarmWorker(conversationId, workspacePaths) {
   const reg = db.loadRegistry();
   if (!reg || !Array.isArray(reg.projects)) return null;
@@ -1170,18 +1236,60 @@ function main() {
               const boardTail = swarmDir
                 ? db.readBoardTailSync(path.join(swarmDir, "board.jsonl"))
                 : { msgs: [], head: 0 };
-              const nameRe = baseName ? new RegExp(`^${escapeRegExp(baseName)}(?:-\\d+)?$`, "i") : null;
-              const matchedMembers = nameRe
-                ? Object.entries(members)
-                    .filter(([mName, mObj]) => (
-                      mObj &&
-                      typeof mObj === "object" &&
-                      mObj.role === "worker" &&
-                      !SYSTEM_ROLE_NAME_RE.test(mName) &&
-                      nameRe.test(mName)
-                    ))
-                    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-                : [];
+
+              const tasksCount = Array.isArray(args.tasks) && args.tasks.length > 0 ? args.tasks.length : 0;
+              const nCount = Number.isFinite(Number(args.n)) && Number(args.n) >= 1 ? Math.floor(Number(args.n)) : 0;
+              const isMultiSpawn = tasksCount > 0 || nCount > 1;
+              const multiCount = tasksCount > 0 ? tasksCount : nCount;
+
+              const isEligibleWorker = ([mName, mObj]) =>
+                Boolean(
+                  mObj &&
+                    typeof mObj === "object" &&
+                    mObj.role === "worker" &&
+                    !SYSTEM_ROLE_NAME_RE.test(mName)
+                );
+
+              let matchedMembers = [];
+              if (baseName) {
+                const baseLower = baseName.toLowerCase();
+                if (isMultiSpawn) {
+                  const expectedNames = new Set();
+                  for (let idx = 1; idx <= multiCount; idx++) {
+                    expectedNames.add(`${baseLower}-${idx}`);
+                  }
+                  matchedMembers = Object.entries(members)
+                    .filter((entry) => isEligibleWorker(entry) && expectedNames.has(entry[0].toLowerCase()))
+                    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+                } else {
+                  // Single-worker add: strictly match exact baseName so older/newer siblings (e.g. impl-auth vs impl-auth-2) are never hijacked
+                  matchedMembers = Object.entries(members).filter(
+                    (entry) => isEligibleWorker(entry) && entry[0].toLowerCase() === baseLower
+                  );
+                  if (matchedMembers.length === 0) {
+                    // Fallback only when exact baseName is absent: pick the single newest suffixed brief matching this add
+                    const suffixRe = new RegExp(`^\\s*@(${escapeRegExp(baseName)}-\\d+)(?=\\s|$)`, "i");
+                    for (let i = boardTail.msgs.length - 1; i >= 0; i--) {
+                      const bm = boardTail.msgs[i];
+                      if (!bm || bm.agent !== "coordinator" || bm.kind !== "brief") continue;
+                      const mHit = String(bm.text || "").match(suffixRe);
+                      if (!mHit) continue;
+                      if (parsedBrief?.dispatchId) {
+                        const mParsed = db.parseDispatchMarker(bm.text);
+                        if (!mParsed || mParsed.dispatchId !== parsedBrief.dispatchId) continue;
+                      }
+                      const candLower = mHit[1].toLowerCase();
+                      const found = Object.entries(members).find(
+                        (entry) => isEligibleWorker(entry) && entry[0].toLowerCase() === candLower
+                      );
+                      if (found) {
+                        matchedMembers = [found];
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
 
               let primaryBriefMarkerConsumed = false;
               const ts = db.nowIso();
@@ -1616,9 +1724,9 @@ function main() {
       } catch {}
     }
 
-    // Auto-ingest deliverables written by either Coordinator or Worker Threads (excluding scratch scripts and .system_generated)
-    if (!input.error && toolName === "write_file") {
-      const writtenPath = args.Path || "";
+    // Auto-ingest deliverables written/edited by either Coordinator or Worker Threads (excluding scratch scripts and .system_generated)
+    if (!input.error && (toolName === "write_file" || toolName === "edit_file")) {
+      const writtenPath = args.Path || args.TargetFile || "";
       const normalizedWrittenPath = String(writtenPath).split(path.sep).join("/");
       const inSystemGenerated = normalizedWrittenPath.includes("/.system_generated/");
       const outputsDir = path.join(db.getProjectDir(workspacePath), "library", "outputs");
@@ -1663,7 +1771,18 @@ function main() {
             state: freshThread.swarm_state || "working"
           };
           const derived = db.deriveSingleMemberState(appDataDir, memberObj);
-          if (derived && (derived.status === "waiting" || derived.status === "killed")) {
+          if (derived && derived.status === "killed") {
+            return sendJson({ decision: "allow" });
+          }
+          if (
+            hasSwarmTurnBoardCompletion(
+              appDataDir,
+              coordId,
+              freshThread.swarm_member_name,
+              freshThread,
+              conversationId
+            )
+          ) {
             return sendJson({ decision: "allow" });
           }
           return sendJson({

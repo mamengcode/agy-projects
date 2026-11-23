@@ -29,7 +29,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "invoke_subagent|write_file|run_command|swarm|manage_swarm|post_message|swarm_wait",
+        "matcher": "invoke_subagent|edit_file|write_file|run_command|swarm|manage_swarm|post_message|swarm_wait",
         "hooks": [
           {
             "type": "command",

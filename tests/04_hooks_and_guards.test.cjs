@@ -194,6 +194,196 @@ test("Hook router guards (AT-01..AT-05, SessionStart, PreInvocation, PreToolUse,
     assert.equal(stopOut.decision, "allow");
   });
 
+  await t.test("GAP-10: PostToolUse swarm add does not hijack sibling worker rows", () => {
+    const sql = db.openProjectDb(ws);
+    const swarmDir = path.join(env.appData, "brain", coordId, ".system_generated", "swarm");
+    fs.mkdirSync(swarmDir, { recursive: true });
+
+    // Existing sibling impl-auth already finished (ready_for_review)
+    const oldThread = db.registerThread(ws, {
+      role: "implementer",
+      title: "Old Auth",
+      conversationId: "conv-auth-old",
+      swarmMemberName: "impl-auth",
+      executionBackend: "swarm",
+      swarmOriginCoordinatorId: coordId
+    });
+    db.updateThreadState(ws, { threadId: oldThread.thread_id, uiBucket: "ready_for_review", summary: "Old done" });
+
+    // New sibling impl-auth-2 proposed + claimed
+    const [newProp] = db.proposeThreads(ws, [{ title: "New Auth 2", description: "v2", role: "implementer" }]);
+    const newDisp = db.createHubDispatch(ws, {
+      threadId: newProp.thread_id,
+      action: "start",
+      targetMemberName: "impl-auth-2",
+      payload: { role: "implementer", title: "New Auth 2", prompt: "v2" }
+    });
+    const claimedNew = db.claimHubDispatch(ws, newDisp.dispatchId, newDisp.nonce);
+
+    fs.writeFileSync(
+      path.join(swarmDir, "members.json"),
+      JSON.stringify({
+        members: {
+          "impl-auth": { role: "worker", conversation_id: "conv-auth-old", phase: "WAITING" },
+          "impl-auth-2": { role: "worker", conversation_id: "conv-auth-new", phase: "WORKING" }
+        }
+      })
+    );
+    fs.writeFileSync(
+      path.join(swarmDir, "board.jsonl"),
+      JSON.stringify({ seq: 1, agent: "coordinator", kind: "brief", text: "@impl-auth legacy brief" }) + "\n"
+    );
+
+    env.callHook({
+      hookEventName: "PostToolUse",
+      conversationId: coordId,
+      workspacePaths: [ws],
+      toolCall: { name: "swarm", args: { action: "add", name: "impl-auth-2", brief: claimedNew.addArgs.brief } }
+    });
+
+    const oldRow = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(oldThread.thread_id);
+    const newRow = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(newProp.thread_id);
+    const dispRow = sql.prepare("SELECT * FROM hub_dispatches WHERE dispatch_id = ?").get(newDisp.dispatchId);
+
+    assert.equal(oldRow.ui_bucket, "ready_for_review");
+    assert.equal(oldRow.conversation_id, "conv-auth-old");
+    assert.equal(oldRow.swarm_member_name, "impl-auth");
+    assert.equal(newRow.swarm_member_name, "impl-auth-2");
+    assert.equal(newRow.conversation_id, "conv-auth-new");
+    assert.equal(newRow.ui_bucket, "working");
+    assert.equal(dispRow.status, "matched");
+    assert.equal(dispRow.target_member_name, "impl-auth-2");
+
+    // Reverse: adding exact "impl-auth" must not touch "impl-auth-2"
+    db.updateThreadState(ws, { threadId: newProp.thread_id, uiBucket: "ready_for_review", summary: "New done" });
+    env.callHook({
+      hookEventName: "PostToolUse",
+      conversationId: coordId,
+      workspacePaths: [ws],
+      toolCall: { name: "swarm", args: { action: "add", name: "impl-auth", brief: "re-add exact base" } }
+    });
+    const newRowAfter = sql.prepare("SELECT * FROM threads WHERE thread_id = ?").get(newProp.thread_id);
+    assert.equal(newRowAfter.ui_bucket, "ready_for_review");
+    assert.equal(newRowAfter.conversation_id, "conv-auth-new");
+  });
+
+  await t.test("GAP-11: Stop hook enforces post_message/swarm_wait even after plain-text transcript flush", () => {
+    const sql = db.openProjectDb(ws);
+    const swarmDir = path.join(env.appData, "brain", coordId, ".system_generated", "swarm");
+    fs.mkdirSync(swarmDir, { recursive: true });
+
+    const stopConv = "conv-swarm-stop-1";
+    const stopThread = db.registerThread(ws, {
+      role: "implementer",
+      title: "Stop Guard Worker",
+      conversationId: stopConv,
+      swarmMemberName: "impl-stop",
+      executionBackend: "swarm",
+      swarmOriginCoordinatorId: coordId
+    });
+    sql.prepare("UPDATE threads SET swarm_handled_seq = 1 WHERE thread_id = ?").run(stopThread.thread_id);
+
+    // Flush a plain-text PLANNER_RESPONSE (no tool_calls) into transcript.jsonl so deriveSingleMemberState returns "waiting"
+    const trDir = path.join(env.appData, "brain", stopConv, ".system_generated", "logs");
+    fs.mkdirSync(trDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(trDir, "transcript.jsonl"),
+      JSON.stringify({ step_index: 1, type: "PLANNER_RESPONSE", tool_calls: [], content: "Finished without calling post_message!" }) + "\n"
+    );
+
+    const membersPath = path.join(swarmDir, "members.json");
+    const boardPath = path.join(swarmDir, "board.jsonl");
+    fs.writeFileSync(
+      membersPath,
+      JSON.stringify({ members: { "impl-stop": { role: "worker", conversation_id: stopConv, phase: "WAITING" } } })
+    );
+    fs.writeFileSync(
+      boardPath,
+      JSON.stringify({ seq: 1, agent: "coordinator", kind: "brief", text: "@impl-stop do work" }) + "\n"
+    );
+
+    // 1. No completion post on board.jsonl -> Stop MUST return continue (not bypassed by plain-text waiting state)
+    const stopDeny = env.callHook({
+      hookEventName: "Stop",
+      conversationId: stopConv,
+      workspacePaths: [ws],
+      terminationReason: "NO_TOOL_CALL",
+      continuationActive: false
+    });
+    assert.equal(stopDeny.decision, "continue");
+    assert.match(stopDeny.reason, /post_message.*swarm_wait/i);
+
+    // 2. Worker posts @coordinator [done] on board.jsonl -> Stop allows
+    fs.appendFileSync(
+      boardPath,
+      JSON.stringify({ seq: 2, agent: "impl-stop", text: "@coordinator [done] completed task" }) + "\n"
+    );
+    const stopAllow = env.callHook({
+      hookEventName: "Stop",
+      conversationId: stopConv,
+      workspacePaths: [ws],
+      terminationReason: "NO_TOOL_CALL",
+      continuationActive: false
+    });
+    assert.equal(stopAllow.decision, "allow");
+
+    // 3. Coordinator steers on Turn 2 (seq 3) and worker exits plain-text without new post -> Stop returns continue again
+    fs.appendFileSync(
+      boardPath,
+      JSON.stringify({ seq: 3, agent: "coordinator", text: "@impl-stop fix follow-up issue" }) + "\n"
+    );
+    const stopTurn2 = env.callHook({
+      hookEventName: "Stop",
+      conversationId: stopConv,
+      workspacePaths: [ws],
+      terminationReason: "NO_TOOL_CALL",
+      continuationActive: false
+    });
+    assert.equal(stopTurn2.decision, "continue");
+
+    // 4. Killed worker -> Stop allows
+    fs.writeFileSync(
+      membersPath,
+      JSON.stringify({ members: { "impl-stop": { role: "worker", conversation_id: stopConv, killed: true, phase: "KILLED" } } })
+    );
+    const stopKilled = env.callHook({
+      hookEventName: "Stop",
+      conversationId: stopConv,
+      workspacePaths: [ws],
+      terminationReason: "NO_TOOL_CALL",
+      continuationActive: false
+    });
+    assert.equal(stopKilled.decision, "allow");
+  });
+
+  await t.test("GAP-19: hooks.json matches edit_file and PostToolUse auto-ingests via TargetFile with telemetry", () => {
+    const hooksCfg = JSON.parse(fs.readFileSync(path.join(env.REPO_ROOT, "hooks.json"), "utf8"));
+    const postMatcher = hooksCfg["agy-projects-lifecycle"].PostToolUse[0].matcher;
+    assert.ok(postMatcher.split("|").includes("edit_file"), `edit_file missing from PostToolUse matcher: ${postMatcher}`);
+
+    const outputsDir = path.join(ws, ".agy-project", "library", "outputs");
+    fs.mkdirSync(outputsDir, { recursive: true });
+    const reportPath = path.join(outputsDir, "edited-deliverable.md");
+    fs.writeFileSync(reportPath, "# Edited Report\nDeliverable updated via edit_file.\n");
+
+    env.callHook({
+      hookEventName: "PostToolUse",
+      conversationId: "worker-impl-1",
+      workspacePaths: [ws],
+      toolCall: { name: "edit_file", args: { TargetFile: reportPath } },
+      toolResponse: { ok: true }
+    });
+
+    const sql = db.openProjectDb(ws);
+    const libItem = sql.prepare("SELECT * FROM library_items WHERE rel_path = ?").get("library/outputs/edited-deliverable.md");
+    assert.ok(libItem, "edit_file deliverable was not auto-ingested into library_items");
+    assert.equal(libItem.source_type, "thread_artifact");
+
+    const workerRow = sql.prepare("SELECT live_telemetry_json FROM threads WHERE conversation_id = ?").get("worker-impl-1");
+    const telemetry = JSON.parse(workerRow.live_telemetry_json || "[]");
+    assert.ok(telemetry.some((e) => e.tool === "edit_file"), "edit_file telemetry not recorded");
+  });
+
   await t.test("AT-05: paused project hard-stops PreInvocation/PreToolUse mutations", () => {
     db.transitionProjectLifecycle(ws, { status: "paused" });
     const pausedPre = env.callHook({
